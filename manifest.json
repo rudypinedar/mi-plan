@@ -1,0 +1,15 @@
+{
+  "name": "Mi plan",
+  "short_name": "Mi plan",
+  "description": "Presupuesto y plan para salir de deudas",
+  "lang": "es-SV",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#16392A",
+  "theme_color": "#16392A",
+  "icons": [
+    { "src": "icono.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icono.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
