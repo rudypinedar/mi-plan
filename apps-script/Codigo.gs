@@ -16,8 +16,6 @@
  *   { accion: "calendario", clave }      actualiza el calendario "Mi plan · pagos"
  *   { accion: "estadosAnteriores", clave, dias }   guarda los estados de cuenta viejos y sus PDF
  *   { accion: "cambiarClaveIngreso", clave, nueva }   (solo con CLAVE_APP)
- *   { accion: "latido", clave }      la Mac avisa que hay una sesión de Claude abierta
- *   { accion: "estadoMac", clave }   ¿está la Mac en línea?
  *   { accion: "instalar", token, claveApp, claveIngreso }
  *       solo funciona si Rudy puso a mano TOKEN_INSTALACION en Propiedades del
  *       script y todavía no hay claves; el token se borra al usarlo.
@@ -80,8 +78,6 @@ function doPost(e) {
     if (p.accion === 'activarCorreo') return json_(activarCorreo());
     if (p.accion === 'calendario') return json_(sincronizarCalendario());
     if (p.accion === 'respaldo') return json_(respaldoDiario());
-    if (p.accion === 'latido') { PropertiesService.getScriptProperties().setProperty('MAC_LATIDO', String(Date.now())); return json_({ ok: true }); }
-    if (p.accion === 'estadoMac') return json_({ ok: true, mac: estadoMac_() });
     if (p.accion === 'cambiarClaveIngreso') return json_(cambiarClaveIngreso_(p));
     if (p.accion === 'estadosAnteriores') return json_(estadosAnteriores(Number(p.dias) || 90));
     if (p.accion === 'bitacora') return json_({ ok: true, filas: leerTabla_('bitacora').slice(-Math.min(Number(p.n) || 20, 100)) });
@@ -138,14 +134,6 @@ function cambiarClaveIngreso_(p) {
   return { ok: true };
 }
 
-// La Mac de Rudy manda un "latido" cada 2 minutos mientras hay una sesión de
-// Claude Code abierta (herramientas/latido.js). En línea = latido de hace menos de 5 min.
-var MAC_EN_LINEA_MS = 5 * 60 * 1000;
-function estadoMac_() {
-  var t = Number(PropertiesService.getScriptProperties().getProperty('MAC_LATIDO') || 0);
-  return { ultimoLatido: t ? new Date(t).toISOString() : '', enLinea: !!t && Date.now() - t < MAC_EN_LINEA_MS };
-}
-
 // Compara sin cortar en la primera diferencia
 function iguales_(a, b) {
   a = String(a || ''); b = String(b || '');
@@ -169,8 +157,7 @@ function leer_() {
   return {
     ok: true, version: r.version, actualizado: r.actualizado, plan: r.plan,
     porClasificar: tablas.por_clasificar.filter(function (f) { return f.estado === 'pendiente'; }),
-    estadosCuenta: tablas.estados_cuenta.slice(-24),
-    mac: estadoMac_()
+    estadosCuenta: tablas.estados_cuenta.slice(-24)
   };
 }
 
