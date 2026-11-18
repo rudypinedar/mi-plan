@@ -22,31 +22,38 @@ Android sí permite que una app lea los SMS (iPhone no). Se usa una app de autom
 
 La **clave de ingreso** solo puede agregar cargos por clasificar: no puede leer tu plan. Por eso es la que se pone en el teléfono para esto. Está en Bitwarden como `CLAVE_INGRESO`.
 
-### Macro en MacroDroid
+### Macro en MacroDroid (así quedó configurada en el S24 Ultra)
 
-Los nombres de los botones pueden variar un poco según la versión.
+Macro **"Mi plan - SMS de compras"**:
 
-1. **Agregar macro → Disparador → Mensaje SMS recibido.**
-   - Remitente: cualquiera, o el número de alertas de tu banco.
-   - Contenido: que **contenga** `compra`.
-2. **Acción → Solicitud HTTP** (HTTP Request):
-   - Método: **POST**.
-   - URL: la dirección del Apps Script (en Bitwarden, "URL del Apps Script"; termina en `/exec`).
-   - Cuerpo: **formulario** (`application/x-www-form-urlencoded`) con estos campos:
+1. **Disparador:** "SMS recibido", de cualquier número, **contiene** `compra`.
+2. **Acción:** Interacciones web → **Solicitud HTTP**:
+   - **Configuración:**
+     - Método **POST**.
+     - URL: la del Apps Script, que termina en `/exec`.
+     - **Seguir redireccionamientos** activado, porque Google responde con una redirección.
+   - **Parámetros de consulta** (van en la dirección):
 
-     | Campo | Valor |
+     | Nombre | Valor |
      |---|---|
      | `accion` | `ingresar` |
-     | `clave` | tu `CLAVE_INGRESO` |
-     | `texto` | la variable con **el texto del SMS** (en MacroDroid se elige con el botón de variables) |
      | `origen` | `sms` |
+     | `clave` | tu `CLAVE_INGRESO` |
 
-   - Activa **seguir redirecciones** si la opción aparece: Google responde con una redirección.
-3. Guarda la macro y dale permiso a MacroDroid para **leer SMS** y para **funcionar en segundo plano** (sin ahorro de batería).
+   - **Cuerpo del contenido:** tipo `text/plain`, con el texto mágico **"Mensaje del SMS entrante"** (`{sms_message}`).
+
+     El SMS va **tal cual**: ningún símbolo del mensaje (`&`, `=`, `+`, `%`) lo puede romper.
+3. **Permisos:**
+   - **Recibir SMS:** sí.
+   - **Batería:** sin restricciones (Ajustes → Aplicaciones → MacroDroid → Batería).
+
+**Si cambias la clave de ingreso:** edita la macro → toca la acción → Configurar → Parámetros de consulta → `clave`. El script la cambia con la acción `cambiarClaveIngreso`, que solo funciona con la clave de la app.
 
 ### Probar
 
-Mándate un SMS de prueba que **contenga** "compra" y el formato del banco, o espera una compra real. En unos segundos debe aparecer en **Mes → Por clasificar**.
+Pide que te manden **desde otro teléfono** un SMS que contenga "compra" y el formato del banco, o espera una compra real.
+
+Un mensaje a tu propio número **no sirve**: Samsung lo manda como chat (RCS), no como SMS, y MacroDroid no lo ve. En unos segundos debe aparecer en **Mes → Por clasificar**.
 
 - Si el texto no se reconoce, igual entra como "sin interpretar".
 - Si llega dos veces la misma alerta, no se duplica.

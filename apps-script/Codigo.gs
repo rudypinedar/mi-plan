@@ -15,6 +15,7 @@
  *   { accion: "activarCorreo", clave }   revisa Gmail cada 15 minutos
  *   { accion: "calendario", clave }      actualiza el calendario "Mi plan · pagos"
  *   { accion: "estadosAnteriores", clave, dias }   guarda los estados de cuenta viejos y sus PDF
+ *   { accion: "cambiarClaveIngreso", clave, nueva }   (solo con CLAVE_APP)
  *   { accion: "instalar", token, claveApp, claveIngreso }
  *       solo funciona si Rudy puso a mano TOKEN_INSTALACION en Propiedades del
  *       script y todavía no hay claves; el token se borra al usarlo.
@@ -56,7 +57,11 @@ function doPost(e) {
   // Las apps de Android (MacroDroid, Tasker) y los Atajos de iPhone pueden mandar
   // un formulario simple (accion=…&clave=…&texto=…): así el texto del SMS no rompe el JSON.
   var tipo = String((e && e.postData && e.postData.type) || '');
+  var qp = (e && e.parameter) || {};
   if (/x-www-form-urlencoded/i.test(tipo) && e.parameter) p = { accion: e.parameter.accion, clave: e.parameter.clave, texto: e.parameter.texto, origen: e.parameter.origen };
+  // También: ?accion=ingresar&clave=…&origen=sms en la dirección y el SMS tal cual en el cuerpo
+  // (texto plano). Así ningún símbolo del mensaje (& = + %) lo puede romper.
+  else if (qp.accion === 'ingresar' && qp.clave) p = { accion: 'ingresar', clave: qp.clave, origen: qp.origen || 'sms', texto: cuerpo };
   else { try { p = JSON.parse(cuerpo); } catch (err) { return json_({ ok: false, error: 'La petición no es un JSON válido' }); } }
   if (!p || typeof p !== 'object' || Array.isArray(p)) return json_({ ok: false, error: 'La petición no es válida' });
 
@@ -73,6 +78,7 @@ function doPost(e) {
     if (p.accion === 'activarCorreo') return json_(activarCorreo());
     if (p.accion === 'calendario') return json_(sincronizarCalendario());
     if (p.accion === 'respaldo') return json_(respaldoDiario());
+    if (p.accion === 'cambiarClaveIngreso') return json_(cambiarClaveIngreso_(p));
     if (p.accion === 'estadosAnteriores') return json_(estadosAnteriores(Number(p.dias) || 90));
     if (p.accion === 'bitacora') return json_({ ok: true, filas: leerTabla_('bitacora').slice(-Math.min(Number(p.n) || 20, 100)) });
     return json_({ ok: false, error: 'Acción desconocida' });
@@ -115,6 +121,17 @@ function revisarClave_(clave, accion) {
     if (!cache.get('FALLO_ANOTADO')) { cache.put('FALLO_ANOTADO', '1', 600); anotar_('seguridad', 'clave incorrecta', 'Petición rechazada (acción: ' + String(accion || '').slice(0, 20).replace(/[^\w]/g, '') + ')'); }
   } catch (_) {}
   return { ok: false, error: 'Clave incorrecta' };
+}
+
+// Cambia la clave de ingreso (la de Atajos y MacroDroid). Solo con CLAVE_APP:
+// la de ingreso no puede cambiarse a sí misma (revisarClave_ no la deja pasar aquí).
+function cambiarClaveIngreso_(p) {
+  var props = PropertiesService.getScriptProperties();
+  var nueva = String(p.nueva || '');
+  if (nueva.length < 24 || !/^[A-Za-z0-9_-]+$/.test(nueva) || iguales_(nueva, props.getProperty('CLAVE_APP'))) return { ok: false, error: 'La clave nueva debe tener al menos 24 letras, números, _ o -, y ser distinta a la de la app' };
+  props.setProperty('CLAVE_INGRESO', nueva);
+  anotar_('seguridad', 'clave de ingreso', 'Se cambió la clave de ingreso');
+  return { ok: true };
 }
 
 // Compara sin cortar en la primera diferencia

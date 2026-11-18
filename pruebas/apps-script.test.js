@@ -443,3 +443,28 @@ test("ingresar acepta un formulario simple (Android, Atajos) con comillas en el 
   const malo = JSON.parse(ctx.doPost({ postData: { type: "application/x-www-form-urlencoded", contents: "x" }, parameter: { accion: "leer", clave: CLAVES.CLAVE_INGRESO } }).texto);
   assert.equal(malo.ok, false, "la clave de ingreso sigue sin poder leer");
 });
+
+test("ingresar acepta el SMS tal cual en el cuerpo con accion y clave en la dirección", () => {
+  const { ctx, post } = entorno(CLAVES);
+  const sms = SMS2.replace("SUPER DE PRUEBA", "A&B = 50% + OFERTA");
+  const r = JSON.parse(ctx.doPost({ postData: { type: "text/plain", contents: sms }, parameter: { accion: "ingresar", clave: CLAVES.CLAVE_INGRESO, origen: "sms" } }).texto);
+  assert.equal(r.ok, true); assert.equal(r.interpretado, true);
+  assert.equal(post({ accion: "leer", clave: CLAVES.CLAVE_APP }).porClasificar[0].comercio, "A&B = 50% + OFERTA");
+  const malo = JSON.parse(ctx.doPost({ postData: { type: "text/plain", contents: sms }, parameter: { accion: "ingresar", clave: "mala" } }).texto);
+  assert.equal(malo.ok, false);
+  const leerAsi = JSON.parse(ctx.doPost({ postData: { type: "text/plain", contents: "{}" }, parameter: { accion: "leer", clave: CLAVES.CLAVE_APP } }).texto);
+  assert.equal(leerAsi.ok, false, "por la dirección solo se puede ingresar");
+});
+
+test("cambiar la clave de ingreso: solo con la de la app, y la vieja deja de servir", () => {
+  const { post, P } = entorno(CLAVES);
+  const nueva = "n".repeat(30);
+  assert.equal(post({ accion: "cambiarClaveIngreso", clave: CLAVES.CLAVE_INGRESO, nueva }).ok, false, "la de ingreso no puede cambiarse sola");
+  assert.equal(post({ accion: "cambiarClaveIngreso", clave: CLAVES.CLAVE_APP, nueva: "corta" }).ok, false);
+  assert.equal(post({ accion: "cambiarClaveIngreso", clave: CLAVES.CLAVE_APP, nueva: CLAVES.CLAVE_APP + "xxxxxxxx" }).ok, true);
+  assert.equal(post({ accion: "cambiarClaveIngreso", clave: CLAVES.CLAVE_APP, nueva: CLAVES.CLAVE_APP }).ok, false, "no puede ser igual a la de la app");
+  assert.equal(post({ accion: "cambiarClaveIngreso", clave: CLAVES.CLAVE_APP, nueva }).ok, true);
+  assert.equal(P.CLAVE_INGRESO, nueva);
+  assert.equal(post({ accion: "ingresar", clave: CLAVES.CLAVE_INGRESO, texto: SMS1 }).ok, false, "la vieja ya no sirve");
+  assert.equal(post({ accion: "ingresar", clave: nueva, texto: SMS1 }).ok, true);
+});

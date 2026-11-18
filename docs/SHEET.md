@@ -39,6 +39,8 @@ Todas se mandan por `POST` con un JSON en el cuerpo y `Content-Type: text/plain`
 | `ingresar` | `CLAVE_INGRESO` o `CLAVE_APP` | `texto`, opcional `origen` (sms, correo) | `id`, `interpretado`, o `duplicado: true` |
 | `revisarCorreo` | `CLAVE_APP` | — | cuántas compras, estados de cuenta, duplicados e ignorados encontró |
 | `activarCorreo` | `CLAVE_APP` | — | crea (una vez) el disparador que revisa Gmail cada 15 minutos |
+| `cambiarClaveIngreso` | `CLAVE_APP` | `nueva` (24 o más caracteres) | cambia la clave de Atajos y MacroDroid; la anterior deja de servir |
+| `ingresar` (variante para SMS) | `CLAVE_INGRESO` | `?accion=ingresar&clave=…&origen=sms` en la dirección y el SMS tal cual en el cuerpo (`text/plain`) | igual que `ingresar` |
 
 ## Correo (Gmail)
 
