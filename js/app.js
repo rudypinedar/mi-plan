@@ -230,8 +230,8 @@ function celebrate(before) {
 function togglePaid(it) {
   const before = balSnap();
   will((it.paid ? "Desmarcaste " : "Marcaste ") + it.name);
-  if (it.paid) { ENG.effect(S, it, -1); it.paid = false; it.paidAmount = null; }
-  else { it.paid = true; it.paidAmount = it.amount; ENG.effect(S, it, 1); }
+  if (it.paid) { ENG.effect(S, it, -1); it.paid = false; it.paidAmount = null; delete it.paidAt; }
+  else { it.paid = true; it.paidAmount = it.amount; it.paidAt = hoyISO(); ENG.effect(S, it, 1); }
   changed(); render(); toast(it.paid ? (it.source === "income" ? "Recibido: " : "Pagado: ") + it.name : "Desmarcado: " + it.name, true); celebrate(before);
 }
 function totalDebt() { return ENG.r2(S.debts.filter(d => !d.closed && (d.since || d.start) <= S.current).reduce((a, d) => a + d.balance, 0)); }
@@ -273,6 +273,7 @@ function render() {
   moreSeq = 0; for (const key in MORE) delete MORE[key];
   document.querySelectorAll("nav.tabs button[data-view]").forEach(b => b.setAttribute("aria-current", b.dataset.view === view ? "page" : "false"));
   const main = $("#main");
+  pintarPerfil();
   if (!S) { main.innerHTML = '<p class="empty">Cargando tu plan…</p>'; return; }
   main.innerHTML = view === "mes" ? vMes() : view === "plan" ? vPlan() : view === "deudas" ? vDeudas() : view === "fondos" ? vFondos() : vAjustes();
   if (view === "plan") wireSim();
@@ -287,7 +288,31 @@ const bankOf = pw => { const b = !pw ? "" : String(etq(pw).banco || ""); return 
 const CAT_ICON = { Hogar: "home", Movilidad: "directions_car", Suscripciones: "subscriptions", "Educación": "school", Gustos: "redeem", Familia: "family_restroom", Otros: "receipt_long", Ingresos: "payments", Tarjetas: "credit_card", "Préstamos": "account_balance", "Cuotas 0%": "shopping_bag", Fondos: "savings", Navidad: "park", Abonos: "trending_down" };
 function grpIcon(key) { if (key === "__auto" || key === "Planilla") return "badge"; const e = etq(key); if (e.icono) return e.icono; if (key === "Débito") return "account_balance_wallet"; if (key === "Cuenta de ahorro") return "savings"; if (key === "Transferencia") return "swap_horiz"; if (e.banco === "fam") return "family_restroom"; if (e.banco) return "credit_card"; return "payments"; }
 function debtIcon(d) { if (d.icon) return d.icon; if (d.kind === "card") return "credit_card"; if (d.kind === "installment") return "shopping_bag"; if (etq(d.payWith).banco === "fam") return "family_restroom"; return "account_balance"; }
-const gIco = (n, pw) => `<span class="gi bkc-${bankOf(pw) || "x"}" aria-hidden="true">${ms(n)}</span>`;
+// Personas (nombre e iniciales viven en el Sheet, config "personas")
+function personaDe(pw, nombre) {
+  const ps = (S && S.personas) || [];
+  return ps.find(p => pw && (p.pagos || []).includes(pw)) || (nombre && ps.find(p => (p.alias || []).some(a => new RegExp(`(^|[^\\p{L}])${a.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}([^\\p{L}]|$)`, "iu").test(nombre)))) || null;
+}
+const avatar = (p, cls = "") => `<span class="avatar ${cls}" title="${esc(p.nombre)}" aria-hidden="true">${esc(String(p.ini || "").slice(0, 3))}</span>`;
+const gIco = (n, pw) => { const p = pw && personaDe(pw); return p ? avatar(p, "gi") : `<span class="gi bkc-${bankOf(pw) || "x"}" aria-hidden="true">${ms(n)}</span>`; };
+// Día en que se paga cada cosa: el suyo, el de su destino (config "diasPago") o el de la tarjeta con que se paga
+function dueDe(it) {
+  if (it.due) return it.due;
+  const dp = (S && S.diasPago) || {};
+  if (dp.pagos && dp.pagos[it.payWith]) return dp.pagos[it.payWith];
+  for (const [re, d] of dp.nombres || []) { try { if (new RegExp(re, "i").test(it.name)) return d; } catch (e) { /* patrón malo: se ignora */ } }
+  const t = S.debts.find(d => d.kind === "card" && !d.closed && d.payWith === it.payWith && d.due);
+  return t ? t.due : null;
+}
+const esPago = it => it.source === "salary" && !it.envelope && !it.autoPaid && it.payWith !== "Cuenta de impuestos";
+const hoyISO = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; };
+function venc(date) {
+  const t = new Date(); t.setHours(0, 0, 0, 0); const n = Math.round((date - t) / 864e5), base = `${date.getDate()} ${MESC[date.getMonth()]}`;
+  if (n < 0) return { t: `Venció el ${base}`, c: "late" };
+  if (n === 0) return { t: "Vence hoy", c: "late" };
+  if (n === 1) return { t: "Vence mañana", c: "soon" };
+  return { t: `Vence el ${base}`, c: n <= 3 ? "soon" : "" };
+}
 const recIcon = r => { const v = iconOf(r); return /^[a-z0-9_]+$/.test(v) ? v : CAT_ICON[r.cat] || "receipt_long"; };
 const bkDot = pw => { const b = bankOf(pw); return b ? `<i class="bk bk-${b}" aria-hidden="true"></i>` : ""; };
 function periodDates(k) { const [y, m] = k.split("-").map(Number); return { start: new Date(y, m - 1, 20), end: new Date(m === 12 ? y + 1 : y, m % 12, 19) }; }
@@ -311,15 +336,23 @@ function shortName(x, group) {
   if (x.kind === "installment") return x.name.replace("Cuota 0% ", "Cuota 0% · ");
   return x.name.replace(/^Fondo /, "Fondo de ").replace("Fondo de fondo", "Fondo");
 }
-function rowItem(it, k, group) {
+function rowItem(it, k, group, o = {}) {
   const val = it.paid ? it.paidAmount : it.amount;
   const label = group ? shortName(it, group) : it.name;
+  let bds = "";
+  if (esPago(it) && it.amount > 0) {
+    const f = fuenteDe(it);
+    if (!o.sinFuente) bds += `<span class="bd f${f}">Pago del ${f}</span>`;
+    if (it.paid) { if (it.paidAt) bds += `<span class="bd ok">Pagado el ${esc(fechaCorta(it.paidAt))}</span>`; }
+    else { const d = dueDe(it); if (d && k) { const v = venc(dueAbs(k, d)); bds += `<span class="bd due ${v.c}">${esc(v.t)}</span>`; } }
+  } else if (it.source === "income" && it.paid && it.paidAt) bds += `<span class="bd ok">Recibido el ${esc(fechaCorta(it.paidAt))}</span>`;
+  const per = !group && personaDe(it.payWith, it.name);
   const sub = group ? (it.autoPaid ? "Se descuenta de tu salario" : it.note && !/^Mínimo/.test(it.note) && it.kind !== "card" ? it.note : "") : [it.note].filter(Boolean).join("");
   const diff = it.paid && Math.abs(it.paidAmount - it.amount) > 0.004 ? `<s>${fmt(it.amount)}</s>` : "";
   const isInc = it.source === "income";
   return `<div class="row ${it.paid ? "paid" : ""} ${it.autoPaid ? "auto" : ""}">
     <button class="chk" data-act="toggle" data-id="${esc(it.id)}" aria-label="${it.paid ? "Desmarcar" : isInc ? "Marcar como recibido" : "Marcar como pagado"}: ${esc(label)}" aria-pressed="${it.paid}"><span>${ICON.check}</span></button>
-    <button class="main" data-act="item" data-id="${esc(it.id)}"><span class="t">${esc(label)}</span>${sub ? `<span class="m">${esc(sub)}</span>` : ""}</button>
+    <button class="main" data-act="item" data-id="${esc(it.id)}"><span class="t">${per ? avatar(per, "mini") : ""}${esc(label)}</span>${sub ? `<span class="m">${esc(sub)}</span>` : ""}${bds ? `<span class="bds">${bds}</span>` : ""}</button>
     <div class="amt num">${fmt(val)}${diff}</div></div>`;
 }
 function insight(m, k) {
@@ -354,8 +387,8 @@ function donut(m) {
 function calStrip(m, k) {
   const { start, end } = periodDates(k); const today = new Date(); today.setHours(0, 0, 0, 0);
   const days = new Map();
-  for (const x of m.items.filter(x => x.source === "salary" && !x.envelope && x.due)) {
-    const d = dueAbs(k, x.due); const key = d.toDateString(); if (!days.has(key)) days.set(key, { pend: 0, paid: 0, lines: new Map() });
+  for (const x of m.items.filter(x => x.source === "salary" && !x.envelope && dueDe(x))) {
+    const d = dueAbs(k, dueDe(x)); const key = d.toDateString(); if (!days.has(key)) days.set(key, { pend: 0, paid: 0, lines: new Map() });
     const o = days.get(key); const lbl = x.autoPaid ? "Planilla" : payLabel(x.payWith);
     if (x.paid) o.paid++; else { o.pend++; o.lines.set(lbl, (o.lines.get(lbl) || 0) + x.amount); }
   }
@@ -371,21 +404,37 @@ function calStrip(m, k) {
   }
   return h + `</div><p class="calkey"><span><i class="pend"></i>Por pagar</span><span><i class="soon"></i>Pronto</span><span><i class="ok"></i>Pagado</span><span><i class="sal"></i>Salario</span><span><i class="bd"></i>Cumpleaños</span></p>`;
 }
-function groupsOf(m, k) {
+function groupsOf(m, k, filtro) {
   const map = new Map();
-  for (const x of m.items.filter(x => x.source === "salary" && !x.envelope)) {
+  for (const x of m.items.filter(x => x.source === "salary" && !x.envelope && (!filtro || filtro(x)))) {
     const key = x.autoPaid ? "__auto" : (x.payWith || "Otros");
     if (!map.has(key)) map.set(key, { key, label: key === "__auto" ? "Descuento de planilla" : payLabel(key), items: [] });
     map.get(key).items.push(x);
   }
   const gs = [...map.values()].map(g => {
-    const dues = g.items.filter(i => i.due && !i.paid).map(i => dueAbs(k, i.due)).sort((a, b) => a - b);
+    const dues = g.items.filter(i => dueDe(i) && !i.paid).map(i => dueAbs(k, dueDe(i))).sort((a, b) => a - b);
     const total = g.items.reduce((a, i) => a + (i.paid ? i.paidAmount : i.amount), 0);
     const pend = g.items.filter(i => !i.paid && i.amount > 0);
     return Object.assign(g, { due: dues[0] || null, total, pend, done: !pend.length });
   });
   const rank = g => g.due ? g.due.getTime() : g.key === "Débito" ? 9e15 : g.key === "Cuenta de ahorro" ? 9.2e15 : 9.1e15;
   return { open: gs.filter(g => !g.done).sort((a, b) => rank(a) - rank(b)), done: gs.filter(g => g.done) };
+}
+// Pagos por hacer: todos visibles, con filtro por pago del 20 / del 30 / esta semana
+const FILTROS = [["todos", "Todos"], ["20", "Del 20"], ["30", "Del 30"], ["semana", "Esta semana"]];
+let filtroPagos = (() => { try { const v = localStorage.getItem("miplan.filtroPagos"); return FILTROS.some(f => f[0] === v) ? v : "todos"; } catch (e) { return "todos"; } })();
+function filtroDe(f, k) {
+  if (f === "20" || f === "30") return x => esPago(x) && fuenteDe(x) === f;
+  if (f === "semana") { const lim = new Date(); lim.setHours(0, 0, 0, 0); lim.setDate(lim.getDate() + 7); return x => esPago(x) && !x.paid && dueDe(x) && dueAbs(k, dueDe(x)) <= lim; }
+  return null;
+}
+function pagosHTML(m, k, preview) {
+  const sinImp = g => g.key !== "Cuenta de impuestos";
+  const pend = f => { const fn = filtroDe(f, k) || (x => esPago(x)); return ENG.r2(m.items.filter(x => x.source === "salary" && !x.envelope && !x.paid && x.amount > 0 && fn(x)).reduce((a, x) => a + x.amount, 0)); };
+  const chips = preview ? "" : `<div class="filtros" role="group" aria-label="Filtrar pagos">${FILTROS.map(([v, t]) => `<button type="button" class="fchip f${v} ${v === filtroPagos ? "on" : ""}" data-act="filtro" data-f="${v}" aria-pressed="${v === filtroPagos}"><b>${t}</b><span class="num">${fmt(pend(v))}</span></button>`).join("")}</div>`;
+  const open = groupsOf(m, k, preview ? null : filtroDe(filtroPagos, k)).open.filter(sinImp);
+  const vacio = { todos: "No te queda ningún pago este mes.", 20: "Ya hiciste todos los pagos del 20.", 30: "Ya hiciste todos los pagos del 30.", semana: "No tienes pagos en los próximos 7 días." }[preview ? "todos" : filtroPagos];
+  return `<section class="block"><h2>Pagos por hacer <small>${open.length ? "ordenados por fecha" : ""}</small></h2>${calStrip(m, k)}${chips}${open.length ? `<div class="pgs">${open.map(g => groupCard(g, k)).join("")}</div>` : `<div class="list"><p class="empty">${vacio}</p></div>`}</section>`;
 }
 function groupCard(g, k) {
   const d = g.due ? dueTxt(g.due) : null;
@@ -423,6 +472,17 @@ function planPagaTarjeta(d, k) {
   const m = S.months[k]; if (!m) return null;
   const ids = new Set([d.id].concat(S.debts.filter(x => x.parent === d.id).map(x => x.id)));
   return ENG.r2(m.items.filter(i => ids.has(i.debtId) && (i.debtSign ?? -1) === -1 && i.source !== "income").reduce((a, i) => a + (i.paid ? i.paidAmount : i.amount), 0));
+}
+// Avisos: para no pagar intereses hay que pagar el "pago de contado" del estado; si el plan paga menos, avisar
+function avisosContado(k) {
+  const out = [], hoy = hoyISO();
+  for (const d of S.debts.filter(x => x.kind === "card" && !x.closed)) {
+    const e = ultimoEstado(d); if (!e || !(num(e.pago_contado) > 0) || !e.fecha_pago || String(e.fecha_pago) < hoy) continue;
+    if (mesDeFecha(e.fecha_pago) !== k) continue;
+    const paga = planPagaTarjeta(d, k); if (paga == null) continue;
+    if (paga + 0.5 < num(e.pago_contado)) out.push({ d, e, paga });
+  }
+  return out;
 }
 // Avisos: el banco pide un mínimo mayor que lo que paga el plan ese mes
 function avisosMinimo(k) {
@@ -494,7 +554,7 @@ function dlgClasificar(id) {
     });
 }
 
-const VERSION_APP = "2026-11-18 · 5";
+const VERSION_APP = "2026-11-18 · 6";
 
 // ---------- lo que entra y a dónde va ----------
 // Cada entrada de dinero con los pagos que se hacen con ese dinero debajo.
@@ -509,7 +569,8 @@ const claveFuente = it => it.recId || it.debtId || it.name;
 function fuenteDe(it) {
   if (it.fuente) return it.fuente;
   const pref = S.fuentesPref && S.fuentesPref[claveFuente(it)]; if (pref) return pref;
-  return it.recId === "casa" || it.payWith === "MAMÁ" || (it.due >= 20 && it.due < DIA_HONORARIOS) ? "20" : "30";
+  const d = dueDe(it);
+  return it.recId === "casa" || it.payWith === "MAMÁ" || (d >= 20 && d < DIA_HONORARIOS) ? "20" : "30";
 }
 const fuenteSobres = m => m.fuenteSobres || (S.fuentesPref && S.fuentesPref[SOBRES]) || "30";
 const pagosConFuente = m => m.items.filter(x => x.source === "salary" && !x.envelope && !x.autoPaid && x.payWith !== "Cuenta de impuestos" && x.amount > 0);
@@ -564,7 +625,7 @@ function flujoHTML(m, k) {
   const desde20 = d => d ? (d >= 20 ? d - 20 : d + 11) : 99;
   const ordenar = xs => xs.slice().sort((a, b) => desde20(a.due) - desde20(b.due) || a.name.localeCompare(b.name));
   const pagos = pagosConFuente(m), p20 = ordenar(pagos.filter(x => fuenteDe(x) === "20")), p30 = ordenar(pagos.filter(x => fuenteDe(x) === "30"));
-  const conMover = (x, a) => rowItem(x, k).replace(/<\/div>\s*$/, `<button class="fl-mover" data-act="fuente" data-id="${esc(x.id)}" data-a="${a}" aria-label="${x.source === "income" ? "Contar" : "Pagar"} ${esc(x.name)} con el pago del ${a}">al ${a}</button></div>`);
+  const conMover = (x, a) => rowItem(x, k, null, { sinFuente: true }).replace(/<\/div>\s*$/, `<button class="fl-mover" data-act="fuente" data-id="${esc(x.id)}" data-a="${a}" aria-label="${x.source === "income" ? "Contar" : "Pagar"} ${esc(x.name)} con el pago del ${a}">al ${a}</button></div>`);
   const resta = (txt, monto, sub, subFalta) => { const falta = monto < -0.005;
     return `<div class="row fl-resta ${falta ? "falta" : ""}"><div class="main"><span class="t">${esc(falta ? "Te faltan " + fmt(-monto) : txt)}</span><span class="m">${esc(falta ? subFalta || "Pasa algún pago al otro ingreso" : sub)}</span></div><div class="amt num">${fmt(Math.max(0, monto))}</div></div>`; };
   const subt = (t, total) => `<div class="fl-sub">${esc(t)} · ${fmt(total)}</div>`;
@@ -656,7 +717,9 @@ function vMes() {
   const envs = m.items.filter(x => x.envelope && x.source === "salary");
   B.env = "";
   if (envs.length) {
-    B.env = `<section class="block"><h2>Tu día a día <button class="link" data-act="spend"><span class="ms" aria-hidden="true">add</span>Anotar gasto</button></h2><div class="list">`;
+    const pres = envs.reduce((a, x) => a + x.amount, 0), gast = envs.reduce((a, x) => a + ENG.spentOf(x), 0);
+    const gs = envs.flatMap(x => x.spent || []), conT = gs.filter(g => g.cardId).reduce((a, g) => a + g.amount, 0), porR = gs.filter(g => g.cardId && !g.repuesto).reduce((a, g) => a + g.amount, 0);
+    B.env = `<section class="block"><h2>Tu día a día <button class="link" data-act="spend"><span class="ms" aria-hidden="true">add</span>Anotar gasto</button></h2><div class="envsum"><span>Llevas <b class="num">${fmt(gast)}</b> de ${fmt(pres)}</span>${conT > 0.004 ? `<span>${fmt(conT)} con tarjeta</span>` : ""}${porR > 0.004 ? `<span class="rep">${fmt(porR)} por reponer</span>` : ""}</div><div class="list">`;
     for (const x of envs) {
       const sp = ENG.spentOf(x), left = ENG.r2(x.amount - sp), pct = Math.min(100, sp / Math.max(x.amount, 1) * 100), over = left < -0.004;
       const dl = k === S.current ? daysLeft(k) : null; const perDay = dl && left > 0.5 ? `<span class="perday">~${fmt(left / dl)} por día · ${dl} ${dl === 1 ? "día" : "días"}</span>` : "";
@@ -666,7 +729,7 @@ function vMes() {
     }
     B.env += `</div></section>`;
   }
-  B.pay = `<section class="block"><h2>Pagos por hacer <small>${openP.length ? `ordenados por fecha` : ""}</small></h2>${calStrip(m, k)}${openP.length ? `<div class="pgs">${openP.slice(0, 4).map(g => groupCard(g, k)).join("")}</div>${openP.length > 5 ? moreBtn("Pagos por hacer", `<div class="pgs">${openP.map(g => groupCard(g, k)).join("")}</div>`, openP.length - 4, "Toca un destino para ver y marcar sus pagos") : openP.length === 5 ? `<div class="pgs">${groupCard(open[4], k)}</div>` : ""}` : `<div class="list"><p class="empty">No te queda ningún pago este mes.</p></div>`}</section>`;
+  B.pay = pagosHTML(m, k, PREVIEW);
   B.inc = flujoHTML(m, k);
   B.ext = "";
   B.done = doneP.length ? `<section class="block"><details class="doneall"><summary>Ya pagado · ${doneP.length} ${doneP.length === 1 ? "destino" : "destinos"} · ${fmt(doneP.reduce((a, g) => a + g.total, 0))}</summary><div class="pgs">${doneP.map(g => groupCard(g, k)).join("")}</div></details></section>` : "";
@@ -680,6 +743,7 @@ function vMes() {
      </div></details></section>`;
   if (PREVIEW) { B.hero = B.hero.split('<div class="qa">')[0]; B.end = ""; }
   B.pc = !PREVIEW && k === S.current && !m.closed ? bandejaHTML() : "";
+  if (!PREVIEW && !m.closed) for (const a of avisosContado(k)) B.note += `<div class="paynote aviso-min">${ms("receipt_long")}<b>${esc(a.d.name)}: el estado de cuenta dice ${fmt(num(a.e.pago_contado))} para no pagar intereses</b><span class="small muted">Tu plan le paga ${fmt(a.paga)} antes del ${esc(fechaCorta(a.e.fecha_pago))}. Si el estado es correcto, ajusta el pago de la tarjeta o pídeme el ajuste.</span><button class="btn" data-act="debt" data-id="${esc(a.d.id)}">Ver la tarjeta</button></div>`;
   if (!PREVIEW && !m.closed) for (const a of avisosMinimo(k)) B.note += `<div class="paynote aviso-min">${ms("warning")}<b>${esc(a.d.name)}: el banco pide un mínimo de ${fmt(num(a.e.pago_minimo))}</b><span class="small muted">Tu plan le paga ${fmt(a.paga)} este mes. Págale al menos el mínimo antes del ${fechaCorta(a.e.fecha_pago)} para evitar recargos.</span><button class="btn" data-act="debt" data-id="${esc(a.d.id)}">Ver la tarjeta</button></div>`;
   B.ins = insight(m, k);
   B.donut = donut(m);
@@ -920,9 +984,53 @@ function wireSim() {
   const deb = () => { clearTimeout(simT); simT = setTimeout(run, 120); };
   m.addEventListener("input", deb); o.addEventListener("input", deb);
 }
+// ---------- perfil ----------
+const fotoOk = f => /^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/=]+$/.test(f || "") ? f : "";
+const inicialPerfil = () => esc(String((S && S.perfil && S.perfil.nombre) || "Tú").slice(0, 1).toUpperCase());
+function pintarPerfil() {
+  const b = document.querySelector(".perfilbtn"); if (!b) return;
+  b.hidden = !S; if (!S) return;
+  const f = fotoOk(S.perfil && S.perfil.foto);
+  b.innerHTML = f ? `<img src="${f}" alt="">` : `<span>${inicialPerfil()}</span>`;
+}
+function perfilHTML() {
+  const p = S.perfil || {}, f = fotoOk(p.foto);
+  return `<section class="block" style="margin-top:0"><div class="perfil"><span class="pfoto">${f ? `<img src="${f}" alt="Tu foto">` : `<span>${inicialPerfil()}</span>`}</span><div class="pdat"><b>${esc(p.nombre || "Tu perfil")}</b><span class="small muted">Tu foto se guarda solo en tu Sheet privado</span><div class="pacc"><label class="btn"><span class="ms" aria-hidden="true">photo_camera</span>Cambiar foto<input type="file" id="f_foto" accept="image/*" hidden></label>${f ? '<button class="btn ghost" data-act="foto-quitar">Quitar</button>' : ""}</div></div></div></section>`;
+}
+async function fotoChica(file) {
+  const bmp = await createImageBitmap(file), lado = Math.min(bmp.width, bmp.height), c = document.createElement("canvas");
+  c.width = c.height = 192;
+  c.getContext("2d").drawImage(bmp, (bmp.width - lado) / 2, Math.max(0, (bmp.height - lado) / 3), lado, lado, 0, 0, 192, 192);
+  return c.toDataURL("image/jpeg", 0.82);
+}
+document.addEventListener("change", async e => {
+  if (!e.target || e.target.id !== "f_foto" || !e.target.files || !e.target.files[0]) return;
+  try { const foto = await fotoChica(e.target.files[0]); will("Cambiaste tu foto"); S.perfil = Object.assign({}, S.perfil || {}, { foto }); changed(); render(); toast("Foto actualizada", true); }
+  catch (err) { toast("No se pudo usar esa imagen"); }
+});
+// ---------- buscador ----------
+function dlgBuscar() {
+  openDlg(`<h3>Buscar</h3>${fld("Pago, gasto o comercio", "q", "", "search", 'autocomplete="off" enterkeyhint="search"')}<div id="bres" class="bres"><p class="hint">Escribe al menos 2 letras. Busca en todos los meses.</p></div><div class="actions"><button class="btn ghost" value="cancel">Cerrar</button></div>`, () => false);
+  const q = document.getElementById("f_q"), out = document.getElementById("bres"); q.focus();
+  const norm = t => String(t || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+  q.addEventListener("input", () => {
+    const t = norm(q.value.trim());
+    if (t.length < 2) { out.innerHTML = '<p class="hint">Escribe al menos 2 letras. Busca en todos los meses.</p>'; return; }
+    const res = [];
+    for (const k of monthKeys().slice().reverse()) {
+      for (const it of S.months[k].items) {
+        if (norm(`${it.name} ${it.note || ""} ${it.payWith ? payLabel(it.payWith) : ""}`).includes(t)) res.push({ k, t: it.name, s: it.paid ? (it.source === "income" ? "Recibido" : "Pagado") : "Pendiente", a: it.paid ? it.paidAmount : it.amount });
+        for (const g of it.spent || []) if (norm(g.note).includes(t)) res.push({ k, t: g.note || it.name, s: it.name.replace(/ \(.*\)/, "") + (g.at ? " · " + fechaCorta(String(g.at).slice(0, 10)) : ""), a: g.amount });
+      }
+      if (res.length >= 80) break;
+    }
+    out.innerHTML = res.length ? `<div class="list">${res.slice(0, 80).map(r => `<button type="button" class="row bres-r" data-act="ir-mes" data-k="${esc(r.k)}"><span class="main"><span class="t">${esc(r.t)}</span><span class="m">${esc(ENG.label(r.k))} · ${esc(r.s)}</span></span><span class="amt num">${fmt(r.a)}</span></button>`).join("")}</div>` : '<p class="hint">No encontré nada con eso.</p>';
+  });
+}
+
 function vAjustes() {
   const k = S.current;
-  let h = `<div class="cols mas"><div class="ca"><section class="block" style="margin-top:0"><h2>Salario líquido <small>desde ${ENG.label(k)}</small></h2><div class="list"><div class="row"><button class="main" data-act="salary"><span class="t">${gIco("payments")}${esc(S.salaryName || "Salario de cada mes")}</span><span class="m">Toca para cambiarlo desde este mes</span></button><div class="amt num">${fmt(ENG.sched(S.income, k))}</div></div>${(S.incomeExtra || []).map(x => `<div class="row"><button class="main" data-act="incx" data-id="${esc(x.id)}"><span class="t">${gIco(x.icon || (x.id === "iva" ? "receipt" : "work"))}${esc(x.name)}</span><span class="m">${esc(x.note || "")}</span></button><div class="amt num">${fmt(ENG.sched(x.schedule, k))}</div></div>`).join("")}</div></section>`;
+  let h = `<div class="cols mas"><div class="ca">${perfilHTML()}<section class="block"><h2>Salario líquido <small>desde ${ENG.label(k)}</small></h2><div class="list"><div class="row"><button class="main" data-act="salary"><span class="t">${gIco("payments")}${esc(S.salaryName || "Salario de cada mes")}</span><span class="m">Toca para cambiarlo desde este mes</span></button><div class="amt num">${fmt(ENG.sched(S.income, k))}</div></div>${(S.incomeExtra || []).map(x => `<div class="row"><button class="main" data-act="incx" data-id="${esc(x.id)}"><span class="t">${gIco(x.icon || (x.id === "iva" ? "receipt" : "work"))}${esc(x.name)}</span><span class="m">${esc(x.note || "")}</span></button><div class="amt num">${fmt(ENG.sched(x.schedule, k))}</div></div>`).join("")}</div></section>`;
   h += `<section class="block"><h2>Gastos fijos <small>se agregan solos cada mes</small></h2><div class="list">`;
   for (const r of S.recurring) { const a = ENG.sched(r.schedule, k); h += `<div class="row"><button class="main" data-act="rec" data-id="${esc(r.id)}"><span class="t">${gIco(recIcon(r))}${esc(r.name)}${a ? "" : '<span class="tag">Sin monto este mes</span>'}</span><span class="m">${esc(r.cat)} · ${esc(r.payWith)}</span></button><div class="amt num">${fmt(a)}</div></div>`; }
   h += `</div></section><div class="actions"><button class="btn" data-act="add-rec"><span class="ms" aria-hidden="true">add</span>Agregar gasto fijo</button></div></div><div class="cb">`;
@@ -1256,7 +1364,7 @@ document.addEventListener("click", e => {
     case "pass-next": if (m.closed) startNext(); else dlgClose(k, true); break;
     case "intro-x": S.ui = Object.assign(S.ui || {}, { introOff: true }); changed(); render(); break;
     case "order-mode": orderMode = !orderMode; render(); break;
-    case "pay-group": { const gk = b.dataset.key; const items = m.items.filter(x => x.source === "salary" && !x.envelope && !x.paid && x.amount > 0 && (gk === "__auto" ? x.autoPaid : !x.autoPaid && (x.payWith || "Otros") === gk)); if (!items.length) break; const before = balSnap(); will(`Pagaste todo a ${gk === "__auto" ? "planilla" : payLabel(gk)}`); for (const it of items) { it.paid = true; it.paidAmount = it.amount; ENG.effect(S, it, 1); } changed(); render(); toast(`${items.length} pagos marcados · ${fmt(items.reduce((s, x) => s + x.amount, 0))}`, true); celebrate(before); break; }
+    case "pay-group": { const gk = b.dataset.key; const items = m.items.filter(x => x.source === "salary" && !x.envelope && !x.paid && x.amount > 0 && (gk === "__auto" ? x.autoPaid : !x.autoPaid && (x.payWith || "Otros") === gk)); if (!items.length) break; const before = balSnap(); will(`Pagaste todo a ${gk === "__auto" ? "planilla" : payLabel(gk)}`); for (const it of items) { it.paid = true; it.paidAmount = it.amount; it.paidAt = hoyISO(); ENG.effect(S, it, 1); } changed(); render(); toast(`${items.length} pagos marcados · ${fmt(items.reduce((s, x) => s + x.amount, 0))}`, true); celebrate(before); break; }
     case "env": { const it = findItem(); if (it) dlgEnv(it, k); break; }
     case "pc": dlgClasificar(id); break;
     case "close-month": dlgClose(k); break;
@@ -1271,6 +1379,11 @@ document.addEventListener("click", e => {
     case "sync-now": Datos.sincronizar(true); break;
     case "bloqueado": toast(b.dataset.msg || "Primero marca que recibiste ese dinero"); break;
     case "reponer": reponerTarjeta(m, b.dataset.card); break;
+    case "filtro": filtroPagos = b.dataset.f; try { localStorage.setItem("miplan.filtroPagos", filtroPagos); } catch (e) { /* sin almacenamiento */ } render(); break;
+    case "perfil": view = "ajustes"; render(); window.scrollTo({ top: 0 }); break;
+    case "foto-quitar": if (S.perfil) { will("Quitaste tu foto"); S.perfil = Object.assign({}, S.perfil, { foto: "" }); changed(); render(); toast("Foto quitada", true); } break;
+    case "buscar": dlgBuscar(); break;
+    case "ir-mes": viewMonth = b.dataset.k; view = "mes"; dlg().close(); render(); window.scrollTo({ top: 0 }); break;
     case "fuente": {
       const a = b.dataset.a === "20" ? "20" : "30";
       if (id === SOBRES) { will(`El día a día ahora sale del pago del ${a}`); m.fuenteSobres = a; S.fuentesPref = Object.assign({}, S.fuentesPref || {}, { [SOBRES]: a }); changed(); render(); toast(`Listo: el día a día sale del pago del ${a}`, true); break; }
@@ -1306,7 +1419,7 @@ function applyTheme(t) {
 }
 function cycleTheme() { const t = THEMES[(THEMES.indexOf(getTheme()) + 1) % 3]; try { localStorage.setItem("miplan.theme", t); } catch (_) {} applyTheme(t); toast(t === "system" ? "Modo automático: sigue el de tu dispositivo" : `Modo ${THEME_TXT[t].toLowerCase()}`); }
 applyTheme(getTheme());
-function applyDiscreet(on) { document.documentElement.classList.toggle("discreet", on); document.querySelectorAll(".eyebtn").forEach(b => { const ic = b.querySelector(".ms"); if (ic) ic.textContent = on ? "visibility_off" : "visibility"; b.setAttribute("aria-pressed", on ? "true" : "false"); b.setAttribute("aria-label", on ? "Modo discreto activo: mostrar montos" : "Modo discreto: ocultar montos"); }); }
+function applyDiscreet(on) { document.documentElement.classList.toggle("discreet", on); document.querySelectorAll(".eyebtn[data-act=\"discreet\"]").forEach(b => { const ic = b.querySelector(".ms"); if (ic) ic.textContent = on ? "visibility_off" : "visibility"; b.setAttribute("aria-pressed", on ? "true" : "false"); b.setAttribute("aria-label", on ? "Modo discreto activo: mostrar montos" : "Modo discreto: ocultar montos"); }); }
 function toggleDiscreet() { const on = !document.documentElement.classList.contains("discreet"); try { localStorage.setItem("miplan.discreet", on ? "1" : "0"); } catch (_) {} applyDiscreet(on); toast(on ? "Modo discreto: montos ocultos" : "Montos visibles"); }
 applyDiscreet(document.documentElement.classList.contains("discreet"));
 let wideNow = null; window.addEventListener("resize", () => { const w = window.matchMedia("(min-width:1024px)").matches; if (wideNow !== null && w !== wideNow && S) render(); wideNow = w; });

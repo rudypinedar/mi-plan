@@ -499,7 +499,7 @@ html.discreet .num,html.discreet .big,html.discreet .amt,html.discreet .chip,htm
 html.discreet .hero .big{filter:blur(12px)}
 .eyebtn{display:inline-flex;align-items:center;justify-content:center;border:1px solid var(--line);background:var(--surface);color:var(--ink);border-radius:999px;min-width:36px;min-height:36px;padding:6px 9px;font-size:13.5px;font-weight:700;gap:6px}
 .eyebtn .ms{font-size:20px}
-html.discreet .eyebtn{background:var(--ink);color:var(--surface);border-color:var(--ink)}
+html.discreet .eyebtn[data-act="discreet"]{background:var(--ink);color:var(--surface);border-color:var(--ink)}
 .paynote{display:grid;grid-template-columns:auto 1fr;gap:4px 12px;align-items:start;margin:12px 0 0;padding:14px 16px;border-radius:16px;background:var(--jade-soft);color:var(--ink);border:1px solid var(--line)}
 .paynote>.ms{grid-row:span 3;font-size:26px;color:var(--jade)}
 .paynote b{font-family:var(--f-num);font-size:16px}
@@ -729,3 +729,42 @@ body.bloqueada .shell{visibility:hidden}
 .fundgrid .fund{border-radius:22px;border-top:1px solid var(--glass-line)}
 .fundgrid .fund:first-child{border-top:1px solid var(--glass-line)}
 @media (min-width:900px){.fundgrid{grid-template-columns:1fr 1fr;gap:14px}}
+
+/* Etiquetas de cada pago: de qué pago sale, cuándo vence, cuándo se pagó */
+.bds{display:flex;flex-wrap:wrap;gap:5px;margin-top:5px}
+.bd{display:inline-flex;align-items:center;border-radius:999px;padding:2px 8px;font-size:12px;font-weight:700;line-height:1.5;border:1px solid transparent;white-space:nowrap}
+.bd.f20{background:#E3EEFB;color:#1F5596}
+.bd.f30{background:#F3E6FA;color:#7240A0}
+.bd.due{background:var(--surface2);color:var(--muted);border-color:var(--line)}
+.bd.due.soon{background:var(--amber-soft);color:var(--amber);border-color:transparent}
+.bd.due.late{background:var(--debt-soft);color:var(--debt);border-color:transparent}
+.bd.ok{background:var(--jade-soft);color:var(--jade)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]) .bd.f20{background:#1D3350;color:#9CC3F2} :root:not([data-theme="light"]) .bd.f30{background:#35244A;color:#D3AEF0}}
+:root[data-theme="dark"] .bd.f20{background:#1D3350;color:#9CC3F2}
+:root[data-theme="dark"] .bd.f30{background:#35244A;color:#D3AEF0}
+/* Filtros de pagos */
+.filtros{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:6px;margin:10px 0 12px}
+.fchip{display:flex;flex-direction:column;align-items:flex-start;gap:1px;border:1px solid var(--line);background:var(--surface);border-radius:14px;padding:7px 9px;min-height:44px;color:var(--ink);text-align:left;min-width:0}
+.fchip b{font-size:13px} .fchip .num{font-size:12px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}
+.fchip.on{background:var(--forest);border-color:var(--forest);color:#fff} .fchip.on .num{color:var(--lime)}
+/* Personas: iniciales en un círculo */
+.avatar{display:inline-flex;align-items:center;justify-content:center;border-radius:50%;background:var(--accent-soft);color:var(--accent-ink);font-weight:800;letter-spacing:.02em;flex:none}
+.avatar.gi{width:24px;height:24px;font-size:10.5px;margin-right:8px;vertical-align:-6px}
+.avatar.mini{width:20px;height:20px;font-size:9.5px;margin-right:6px;vertical-align:-4px}
+/* Resumen del día a día */
+.envsum{display:flex;flex-wrap:wrap;gap:6px 14px;margin:-2px 2px 10px;font-size:14px;color:var(--muted)}
+.envsum b{color:var(--ink)} .envsum .rep{color:var(--amber);font-weight:700}
+/* Perfil */
+.marca{display:flex;align-items:center;gap:10px;min-width:0}
+.perfilbtn{width:34px;height:34px;border-radius:50%;padding:0;border:2px solid var(--surface);box-shadow:0 0 0 1px var(--line);overflow:hidden;background:var(--forest);color:#fff;font-weight:800;flex:none}
+.perfilbtn img,.pfoto img{width:100%;height:100%;object-fit:cover;display:block}
+.perfil{display:flex;align-items:center;gap:16px;padding:16px;border-radius:22px;background:var(--surface2);border:1px solid var(--glass-line,var(--line))}
+.pfoto{width:72px;height:72px;border-radius:50%;overflow:hidden;flex:none;background:var(--forest);color:#fff;font-size:28px;font-weight:800;display:flex;align-items:center;justify-content:center}
+.pdat{display:flex;flex-direction:column;gap:2px;min-width:0} .pdat b{font-size:18px}
+.pacc{display:flex;gap:8px;margin-top:8px;flex-wrap:wrap} .pacc .btn{padding:7px 12px;font-size:14px;cursor:pointer}
+/* Buscador */
+.bres{max-height:55vh;overflow:auto;margin:8px 0}
+.bres-r{width:100%;border:0;background:none;text-align:left;color:inherit;font:inherit}
+/* Encabezado: el nombre no se corta; el estado de sincronización cede espacio */
+header.top .marca{flex:none}
+@media (max-width:430px){header.top .save span{display:none} header.top .save{padding:8px 10px} header.top .tools{gap:6px}}

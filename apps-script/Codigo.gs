@@ -499,18 +499,21 @@ function eventosDelPlan(plan, estados, hoy, dias) {
   var grupos = {};
   meses.forEach(function (k) {
     (plan.months[k].items || []).forEach(function (it) {
-      if (it.source !== 'salary' || it.envelope || it.paid || it.autoPaid || !(it.amount > 0) || !it.due) return;
-      var fecha = fechaDePago_(k, it.due);
+      if (it.source !== 'salary' || it.envelope || it.paid || it.autoPaid || !(it.amount > 0)) return;
+      var dia = diaDePago_(plan, it); if (!dia) return;
+      var fecha = fechaDePago_(k, dia);
       if (fecha < hoy || fecha > fin) return;
       var clave = fecha + '|' + (it.payWith || it.name);
-      var g = grupos[clave] = grupos[clave] || { fecha: fecha, pw: it.payWith || '', items: [] };
+      var g = grupos[clave] = grupos[clave] || { fecha: fecha, pw: it.payWith || '', items: [], fuentes: {} };
+      if (it.payWith !== 'Cuenta de impuestos') g.fuentes[fuenteDePago_(plan, it, dia)] = 1;
       g.items.push(it);
     });
   });
   Object.keys(grupos).sort().forEach(function (c) {
     var g = grupos[c], total = g.items.reduce(function (a, i) { return a + i.amount; }, 0);
     var quien = g.pw ? etq(g.pw) : g.items[0].name;
-    out.push({ fecha: g.fecha, titulo: 'Pagar ' + quien + ' · ' + usd(total),
+    var fs = Object.keys(g.fuentes);
+    out.push({ fecha: g.fecha, titulo: 'Pagar ' + quien + ' · ' + usd(total) + (fs.length === 1 ? ' · pago del ' + fs[0] : ''),
       detalle: g.items.map(function (i) { return '• ' + i.name + ': ' + usd(i.amount); }).join('\n') + '\n\nMárcalo como pagado en Mi plan.', avisos: [2340, 900] });
   });
   // Cortes de tarjeta: día de corte del plan (d.cut) o el del último estado de cuenta
@@ -530,6 +533,23 @@ function eventosDelPlan(plan, estados, hoy, dias) {
     }
   });
   return out.sort(function (a, b) { return a.fecha < b.fecha ? -1 : a.fecha > b.fecha ? 1 : 0; });
+}
+
+// Día de pago de un ítem: el suyo, el de su destino (config "diasPago") o el de la tarjeta con que se paga
+function diaDePago_(plan, it) {
+  if (it.due) return Number(it.due);
+  var dp = plan.diasPago || {};
+  if (dp.pagos && dp.pagos[it.payWith]) return Number(dp.pagos[it.payWith]);
+  var nombres = dp.nombres || [];
+  for (var i = 0; i < nombres.length; i++) { try { if (new RegExp(nombres[i][0], 'i').test(it.name)) return Number(nombres[i][1]); } catch (e) { /* patrón malo */ } }
+  var t = (plan.debts || []).filter(function (d) { return d.kind === 'card' && !d.closed && d.payWith === it.payWith && d.due; })[0];
+  return t ? Number(t.due) : 0;
+}
+// De qué ingreso sale (igual que en la app): "20" salario, "30" honorarios
+function fuenteDePago_(plan, it, dia) {
+  if (it.fuente) return it.fuente;
+  var pref = plan.fuentesPref && plan.fuentesPref[it.recId || it.debtId || it.name]; if (pref) return pref;
+  return it.recId === 'casa' || it.payWith === 'MAMÁ' || (dia >= 20 && dia < 30) ? '20' : '30';
 }
 
 // Mes del plan = del 20 al 19: los días 20–31 son del mismo mes; 1–19, del siguiente

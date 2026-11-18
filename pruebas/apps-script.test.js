@@ -341,8 +341,8 @@ test("calendario: pagos pendientes agrupados y cortes de tarjeta", () => {
   const ev = JSON.parse(JSON.stringify(ctx.eventosDelPlan(plan, [], "2030-11-22", 50)));
   const t = ev.map(e => e.fecha + " " + e.titulo);
   assert.deepEqual(t, [
-    "2030-11-25 Pagar Débito · $300.00",
-    "2030-12-03 Pagar Tarjeta A · $70.00",
+    "2030-11-25 Pagar Débito · $300.00 · pago del 20",
+    "2030-12-03 Pagar Tarjeta A · $70.00 · pago del 30",
     "2030-12-08 Corte de Tarjeta A · compras grandes, mejor desde mañana",
     "2031-01-08 Corte de Tarjeta A · compras grandes, mejor desde mañana",
   ]);
@@ -354,6 +354,22 @@ test("calendario: pagos pendientes agrupados y cortes de tarjeta", () => {
   plan.debts[0].cut = null; plan.debts[0].digits = "0001";
   const ev2 = ctx.eventosDelPlan(plan, [{ tarjeta: "0001", fecha_corte: "2030-10-21" }], "2030-11-22", 30);
   assert.ok(ev2.some(e => e.fecha === "2030-12-21" && /Corte/.test(e.titulo)));
+});
+
+test("calendario: lo que no trae día usa el de su destino o el de su tarjeta", () => {
+  const { ctx } = entorno(CLAVES);
+  const plan = {
+    current: "2030-11", diasPago: { pagos: { FAMILIA: 20 }, nombres: [["^Escuela", 8]] }, fuentesPref: { tel: "20" },
+    debts: [{ id: "tA", name: "Tarjeta A", kind: "card", balance: 0, payWith: "BANCO A", due: 16 }],
+    months: { "2030-11": { items: [
+      { name: "Teléfono", recId: "tel", source: "salary", payWith: "BANCO A", amount: 23 },
+      { name: "Mamá", source: "salary", payWith: "FAMILIA", amount: 150 },
+      { name: "Escuela cuota", source: "salary", payWith: "Débito", amount: 90 },
+      { name: "Sin fecha", source: "salary", payWith: "Débito", amount: 5 },
+    ] } },
+  };
+  const t = JSON.parse(JSON.stringify(ctx.eventosDelPlan(plan, [], "2030-11-20", 40))).filter(e => /Pagar/.test(e.titulo)).map(e => e.fecha + " " + e.titulo);
+  assert.deepEqual(t, ["2030-11-20 Pagar FAMILIA · $150.00 · pago del 20", "2030-12-08 Pagar Débito · $90.00 · pago del 30", "2030-12-16 Pagar BANCO A · $23.00 · pago del 20"]);
 });
 
 test("fechaDePago: el mes del plan va del 20 al 19", () => {
