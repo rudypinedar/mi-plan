@@ -29,12 +29,28 @@ function resumen(plan) {
   const t = ENG.totals(plan.months[plan.current]);
   return { deuda: p.rows[0].debt, libreDe: p.debtFree, intereses: p.interest, mesLibre: t.free };
 }
+// Simula los próximos meses (marcando todo pagado) y avisa si alguno no cuadra
+function mesesQueNoCuadran(plan, n = 6) {
+  const s = copia(plan), out = [];
+  let k = s.current;
+  for (const it of s.months[k].items) if (!it.paid) { it.paid = true; it.paidAmount = it.amount; ENG.effect(s, it, 1); }
+  for (let i = 0; i < n; i++) {
+    k = ENG.keyAdd(k, 1);
+    const m = ENG.generate(s, k); s.months[k] = m;
+    const t = ENG.totals(m);
+    if (t.free < -0.01) out.push(`${ENG.longLabel(k)}: faltan ${usd(-t.free)}`);
+    for (const it of m.items) if (!it.paid) { it.paid = true; it.paidAmount = it.amount; ENG.effect(s, it, 1); }
+  }
+  return out;
+}
 function problemas(plan) {
   const out = [], malo = x => typeof x !== "number" || !Number.isFinite(x);
   for (const d of plan.debts) if (malo(d.balance) || d.balance < -0.005) out.push(`deuda ${d.name}: ${d.balance}`);
   for (const f of plan.funds) if (malo(f.balance) || f.balance < -0.005) out.push(`fondo ${f.name}: ${f.balance}`);
   for (const [k, m] of Object.entries(plan.months)) for (const it of m.items) if (malo(it.amount)) out.push(`${k} · ${it.name}: ${it.amount}`);
   try { ENG.project(copia(plan)); } catch (e) { out.push("la proyección falla: " + e.message); }
+  const t = ENG.totals(plan.months[plan.current]); if (t.free < -0.01) out.push(`${ENG.longLabel(plan.current)}: faltan ${usd(-t.free)}`);
+  try { out.push(...mesesQueNoCuadran(plan)); } catch (e) { out.push("no se pudo simular los próximos meses: " + e.message); }
   return out;
 }
 // Lista simple de diferencias por id (deudas, fondos, puntuales, fijos) y campos sueltos
