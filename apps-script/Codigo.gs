@@ -53,7 +53,11 @@ function doPost(e) {
   var cuerpo = (e && e.postData && e.postData.contents) || '{}';
   if (cuerpo.length > MAX_PETICION) return json_({ ok: false, error: 'La petición es demasiado grande' });
   var p;
-  try { p = JSON.parse(cuerpo); } catch (err) { return json_({ ok: false, error: 'La petición no es un JSON válido' }); }
+  // Las apps de Android (MacroDroid, Tasker) y los Atajos de iPhone pueden mandar
+  // un formulario simple (accion=…&clave=…&texto=…): así el texto del SMS no rompe el JSON.
+  var tipo = String((e && e.postData && e.postData.type) || '');
+  if (/x-www-form-urlencoded/i.test(tipo) && e.parameter) p = { accion: e.parameter.accion, clave: e.parameter.clave, texto: e.parameter.texto, origen: e.parameter.origen };
+  else { try { p = JSON.parse(cuerpo); } catch (err) { return json_({ ok: false, error: 'La petición no es un JSON válido' }); } }
   if (!p || typeof p !== 'object' || Array.isArray(p)) return json_({ ok: false, error: 'La petición no es válida' });
 
   if (p.accion === 'instalar') return json_(conCandado_(function () { return instalar_(p); }));
@@ -68,6 +72,7 @@ function doPost(e) {
     if (p.accion === 'revisarCorreo') return json_(revisarCorreo());
     if (p.accion === 'activarCorreo') return json_(activarCorreo());
     if (p.accion === 'calendario') return json_(sincronizarCalendario());
+    if (p.accion === 'respaldo') return json_(respaldoDiario());
     if (p.accion === 'estadosAnteriores') return json_(estadosAnteriores(Number(p.dias) || 90));
     if (p.accion === 'bitacora') return json_({ ok: true, filas: leerTabla_('bitacora').slice(-Math.min(Number(p.n) || 20, 100)) });
     return json_({ ok: false, error: 'Acción desconocida' });
@@ -274,6 +279,9 @@ function revisarCorreo() {
     if (r.estados) props.setProperty('CALENDARIO_PENDIENTE', '1');
     // El calendario se actualiza si hubo cambios o una vez al día
     var hoy = Utilities.formatDate(new Date(), 'America/El_Salvador', 'yyyy-MM-dd');
+    if (props.getProperty('RESPALDO_DIA') !== hoy) {
+      try { r.respaldo = respaldoDiario(); } catch (err) { anotar_('respaldo', 'error', String(err && err.message || err)); }
+    }
     if (props.getProperty('CALENDARIO_PENDIENTE') === '1' || props.getProperty('CALENDARIO_DIA') !== hoy) {
       try { r.calendario = sincronizarCalendario(); } catch (err) { anotar_('calendario', 'error', String(err && err.message || err)); }
     }
@@ -369,11 +377,12 @@ function buscarEnDrive_(nombre, padre, esCarpeta) {
   var r = Drive.Files.list({ q: q, fields: 'files(id,webViewLink)', pageSize: 1 });
   return (r.files && r.files[0]) || null;
 }
-function carpetaEstados_() {
-  var props = PropertiesService.getScriptProperties(), id = props.getProperty('CARPETA_ESTADOS_ID');
+function carpetaEstados_() { return carpetaPropia_('CARPETA_ESTADOS_ID', 'Mi plan · Estados de cuenta'); }
+function carpetaPropia_(propiedad, nombre) {
+  var props = PropertiesService.getScriptProperties(), id = props.getProperty(propiedad);
   if (id) { try { var f = Drive.Files.get(id, { fields: 'id,trashed' }); if (f && !f.trashed) return id; } catch (_) {} }
-  var c = Drive.Files.create({ name: 'Mi plan · Estados de cuenta', mimeType: CARPETA }, null, { fields: 'id' });
-  props.setProperty('CARPETA_ESTADOS_ID', c.id);
+  var c = Drive.Files.create({ name: nombre, mimeType: CARPETA }, null, { fields: 'id' });
+  props.setProperty(propiedad, c.id);
   return c.id;
 }
 function subcarpeta_(padre, nombre) {
@@ -401,6 +410,28 @@ function activarCorreo() {
   var r = revisarCorreo();
   r.activado = true; r.yaEstaba = ya;
   return r;
+}
+
+// ---------------------------------------------------------------- respaldo diario
+
+var MAX_RESPALDOS = 30;
+
+// Una vez al día guarda el plan completo (JSON) en "Mi plan · Respaldos" y deja
+// solo los últimos 30. Sirve para volver atrás si algo se daña.
+function respaldoDiario() {
+  var props = PropertiesService.getScriptProperties();
+  var hoy = Utilities.formatDate(new Date(), 'America/El_Salvador', 'yyyy-MM-dd');
+  var datos = leer_();
+  var nombre = 'mi-plan-' + hoy + '.json';
+  var carpeta = carpetaPropia_('CARPETA_RESPALDOS_ID', 'Mi plan · Respaldos');
+  if (!buscarEnDrive_(nombre, carpeta, false)) {
+    var blob = Utilities.newBlob(JSON.stringify({ version: datos.version, actualizado: datos.actualizado, plan: datos.plan }), 'application/json', nombre);
+    Drive.Files.create({ name: nombre, parents: [carpeta], mimeType: 'application/json' }, blob, { fields: 'id' });
+  }
+  var viejos = (Drive.Files.list({ q: "'" + carpeta + "' in parents and trashed = false and name contains 'mi-plan-'", orderBy: 'name desc', fields: 'files(id,name)', pageSize: 100 }).files || []).slice(MAX_RESPALDOS);
+  viejos.forEach(function (f) { Drive.Files.update({ trashed: true }, f.id); });
+  props.setProperty('RESPALDO_DIA', hoy);
+  return { ok: true, archivo: nombre, borrados: viejos.length };
 }
 
 // ---------------------------------------------------------------- calendario

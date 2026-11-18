@@ -65,9 +65,10 @@ function driveFalso() {
     archivos,
     Files: {
       create: (res, blob) => { const f = Object.assign({ id: "f" + archivos.length, webViewLink: "https://drive.google.com/file/d/f" + archivos.length + "/view", trashed: false }, res, { blob }); archivos.push(f); return f; },
-      list: ({ q }) => { const nombre = (q.match(/name = '([^']*)'/) || [])[1], padre = (q.match(/'([^']+)' in parents/) || [])[1];
-        return { files: archivos.filter(f => f.name === nombre && (!padre || (f.parents || []).includes(padre))) }; },
+      list: ({ q }) => { const nombre = (q.match(/name = '([^']*)'/) || [])[1], padre = (q.match(/'([^']+)' in parents/) || [])[1], contiene = (q.match(/name contains '([^']*)'/) || [])[1];
+        return { files: archivos.filter(f => !f.trashed && (nombre ? f.name === nombre : contiene ? f.name.includes(contiene) : true) && (!padre || (f.parents || []).includes(padre))).sort((a, b) => (a.name < b.name ? 1 : -1)) }; },
       get: id => archivos.find(f => f.id === id),
+      update: (res, id) => Object.assign(archivos.find(f => f.id === id), res),
     },
   };
 }
@@ -417,4 +418,28 @@ test("correo: funciona si Gmail entrega los datos ya como bytes", () => {
   const r = env.ctx.revisarCorreo();
   assert.equal(r.compras, 1); assert.equal(r.estados, 1);
   assert.equal(env.ctx.Drive.archivos.filter(f => f.mimeType === "application/pdf").length, 1);
+});
+
+test("respaldo diario: guarda el plan en Drive y deja solo los últimos 30", () => {
+  const env = entorno(CLAVES);
+  const s = iniciar(require("./plan-ejemplo.js")());
+  env.post({ accion: "guardar", clave: CLAVES.CLAVE_APP, version: 0, plan: s });
+  const r = env.ctx.respaldoDiario();
+  assert.equal(r.ok, true);
+  const archivo = env.ctx.Drive.archivos.find(f => f.name === r.archivo);
+  assert.deepEqual(JSON.parse(Buffer.from(archivo.blob.bytes).toString()).plan, JSON.parse(JSON.stringify(s)));
+  const carpeta = archivo.parents[0];
+  for (let i = 1; i <= 35; i++) env.ctx.Drive.Files.create({ name: `mi-plan-2029-01-${String(i).padStart(2, "0")}.json`, parents: [carpeta] });
+  assert.equal(env.ctx.respaldoDiario().borrados, 6);
+  assert.equal(env.ctx.Drive.archivos.filter(f => !f.trashed && f.parents && f.parents[0] === carpeta).length, 30);
+});
+
+test("ingresar acepta un formulario simple (Android, Atajos) con comillas en el texto", () => {
+  const { ctx, post } = entorno(CLAVES);
+  const sms = SMS2.replace("SUPER DE PRUEBA", 'SUPER "LA ESQUINA"');
+  const r = JSON.parse(ctx.doPost({ postData: { type: "application/x-www-form-urlencoded", contents: "x" }, parameter: { accion: "ingresar", clave: CLAVES.CLAVE_INGRESO, texto: sms, origen: "sms" } }).texto);
+  assert.equal(r.ok, true); assert.equal(r.interpretado, true);
+  assert.equal(post({ accion: "leer", clave: CLAVES.CLAVE_APP }).porClasificar[0].comercio, 'SUPER "LA ESQUINA"');
+  const malo = JSON.parse(ctx.doPost({ postData: { type: "application/x-www-form-urlencoded", contents: "x" }, parameter: { accion: "leer", clave: CLAVES.CLAVE_INGRESO } }).texto);
+  assert.equal(malo.ok, false, "la clave de ingreso sigue sin poder leer");
 });
