@@ -11,9 +11,8 @@ if (!url || !clave) { console.error("Faltan MIPLAN_URL y MIPLAN_CLAVE"); process
 const archivo = path.join(__dirname, "..", "privado", "respaldo.json");
 const plan = JSON.parse(fs.readFileSync(archivo, "utf8"));
 if (!plan.months || !plan.debts) { console.error("respaldo.json no parece un respaldo de Mi plan"); process.exit(1); }
-// Nombres reales (banco, quien paga los honorarios) que no van en el código
-const fNombres = path.join(__dirname, "..", "privado", "nombres.json");
-if (!plan.nombres && fs.existsSync(fNombres)) plan.nombres = JSON.parse(fs.readFileSync(fNombres, "utf8"));
+// Lo personal que no va en el código (nombres, etiquetas, íconos)
+require("./personalizar.js")(plan);
 
 const post = cuerpo => fetch(url, { method: "POST", headers: { "Content-Type": "text/plain" }, body: JSON.stringify(cuerpo), redirect: "follow" }).then(r => r.json());
 
