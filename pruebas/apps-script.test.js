@@ -144,3 +144,14 @@ test("al guardar se pueden marcar los movimientos ya clasificados", () => {
   post({ accion: "guardar", clave: CLAVES.CLAVE_APP, version: 0, plan: s, clasificados: [{ id, estado: "asignado", asignado_a: "sobre:super" }] });
   assert.equal(post({ accion: "leer", clave: CLAVES.CLAVE_APP }).porClasificar.length, 0);
 });
+
+test("instalar solo funciona la primera vez", () => {
+  const { post, P, hojas } = entorno({});
+  assert.equal(post({ accion: "instalar", claveApp: "corta", claveIngreso: "x".repeat(30) }).ok, false);
+  const a = "a".repeat(32), b = "b".repeat(32);
+  assert.equal(post({ accion: "instalar", claveApp: a, claveIngreso: b }).ok, true);
+  assert.equal(P.CLAVE_APP, a); assert.ok(hojas.config && hojas.deudas, "no creó las pestañas");
+  const otra = post({ accion: "instalar", claveApp: "c".repeat(32), claveIngreso: "d".repeat(32) });
+  assert.equal(otra.ok, false); assert.equal(P.CLAVE_APP, a, "dejó cambiar la clave");
+  assert.equal(post({ accion: "leer", clave: a }).ok, true);
+});

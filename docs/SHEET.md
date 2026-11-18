@@ -46,12 +46,17 @@ Todas se mandan por `POST` con un JSON en el cuerpo y `Content-Type: text/plain`
 
 ## Instalación (una vez)
 
-1. Crea un Google Sheet nuevo llamado "Mi plan · datos".
-2. Ve a Extensiones → Apps Script y pega el contenido de `apps-script/Codigo.gs`.
-3. Ejecuta `configurar` (crea las pestañas) y luego `crearClaves`. Copia las dos claves del registro de ejecución.
-4. Ve a Implementar → Nueva implementación → Aplicación web:
-   - Ejecutar como: **yo**.
-   - Quién tiene acceso: **cualquier usuario**. La clave es la que protege.
-5. Copia la URL que termina en `/exec`.
-6. Importa el respaldo desde la computadora:
-   `MIPLAN_URL=… MIPLAN_CLAVE=… node herramientas/importar.js`
+Ya está hecha. Así se hizo, por si hay que repetirla:
+
+1. `npx @google/clasp login` con la cuenta personal.
+2. `npx @google/clasp create-script --type sheets --title "Mi plan · datos" --rootDir apps-script` crea el Sheet con su script.
+   - Ojo: este comando reemplaza `apps-script/appsscript.json`. Hay que restaurarlo con `git checkout`.
+   - Guarda los identificadores en `.clasp.json`, que no se sube.
+3. `npx @google/clasp push --force` y luego `npx @google/clasp create-deployment`. La URL `/exec` va en `privado/conexion.json`.
+4. Una sola vez en el navegador: abre el editor del script, ejecuta `configurar` y acepta los permisos (solo pide esta hoja).
+5. `node herramientas/instalar.js`:
+   - Genera las dos claves en `privado/claves.json`, que no se sube.
+   - Las instala con la acción `instalar`, que solo funciona mientras no haya claves.
+   - Importa `privado/respaldo.json`.
+
+Para publicar cambios del script: `npx @google/clasp push --force` y luego `npx @google/clasp update-deployment <id>`, para que la URL no cambie.

@@ -11,6 +11,7 @@
  *   { accion: "leer",     clave }
  *   { accion: "guardar",  clave, version, plan, clasificados? }
  *   { accion: "ingresar", clave, texto, origen? }
+ *   { accion: "instalar", claveApp, claveIngreso }   (solo la primera vez)
  * y la respuesta siempre es JSON: { ok: true, ... } o { ok: false, error }.
  *
  * Ver docs/SHEET.md para la estructura de cada pestaña.
@@ -47,6 +48,8 @@ function doPost(e) {
   try { p = JSON.parse((e && e.postData && e.postData.contents) || '{}'); }
   catch (err) { return json_({ ok: false, error: 'La petición no es un JSON válido' }); }
 
+  if (p.accion === 'instalar') return json_(conCandado_(function () { return instalar_(p); }));
+
   var acceso = revisarClave_(p.clave, p.accion);
   if (!acceso.ok) return json_(acceso);
 
@@ -59,6 +62,21 @@ function doPost(e) {
     anotar_('app', 'error', String(err && err.message || err));
     return json_({ ok: false, error: 'Algo falló en el servidor: ' + (err && err.message || err) });
   }
+}
+
+// ---------------------------------------------------------------- instalación remota
+
+// Solo funciona UNA vez: mientras no exista CLAVE_APP. Guarda las dos claves
+// que manda la computadora de Rudy y crea las pestañas. Después queda inútil.
+function instalar_(p) {
+  var props = PropertiesService.getScriptProperties();
+  if (props.getProperty('CLAVE_APP')) return { ok: false, error: 'Ya está instalado' };
+  var app = String(p.claveApp || ''), ing = String(p.claveIngreso || '');
+  if (app.length < 24 || ing.length < 24 || app === ing) return { ok: false, error: 'Las claves deben ser distintas y de al menos 24 caracteres' };
+  props.setProperties({ CLAVE_APP: app, CLAVE_INGRESO: ing, INTENTOS: '0', BLOQUEO_HASTA: '0' });
+  configurar();
+  anotar_('instalacion', 'instalar', 'Claves guardadas y pestañas creadas');
+  return { ok: true };
 }
 
 // ---------------------------------------------------------------- acceso
