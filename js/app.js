@@ -313,6 +313,20 @@ function yaLlegó(f, m) {
   return inc.some(x => /^Honorarios/.test(x.name) && x.paid) || m.items.some(x => x.tag === "mine" && x.paid);
 }
 const fechaTxt = d => `${d.getDate()} ${MESC[d.getMonth()]}`;
+// La tarjeta con que se paga algo: la propia (pago o cuota dentro de la tarjeta) o la de su forma de pago
+function tarjetaDePago(it) {
+  const d = it.debtId && ENG.debtById(S, it.debtId);
+  if (d && d.kind === "card") return d;
+  if (d && d.parent) { const p = ENG.debtById(S, d.parent); if (p && p.kind === "card") return p; }
+  return S.debts.find(x => x.kind === "card" && !x.closed && x.payWith === it.payWith) || null;
+}
+// Corte del estado de cuenta que se paga en la fecha "due": el último día de corte antes de esa fecha
+function corteAntesDe(card, due) {
+  if (!card || !card.cut || !due) return null;
+  let c = new Date(due.getFullYear(), due.getMonth(), card.cut);
+  if (c >= due) c = new Date(due.getFullYear(), due.getMonth() - 1, card.cut);
+  return c;
+}
 function cuandoDe(it, k, m) {
   if (it.paid || !esPago(it) || !(it.amount > 0)) return null;
   const hoy = new Date(); hoy.setHours(0, 0, 0, 0);
@@ -323,7 +337,10 @@ function cuandoDe(it, k, m) {
   if (n < 0) return { c: "late", t: `Venció el ${fechaTxt(due)}` };
   const f = fuenteDe(it), ok = yaLlegó(f, m), cerca = (due - llegadaDe(f, k)) / 864e5 <= 5 || n <= 3;
   if (cerca) return { c: "now", t: n === 0 ? "Págalo hoy" : ok ? `Págalo ya · ${fechaTxt(due)}` : `Al recibir · ${fechaTxt(due)}`, ya: ok || n <= 0 };
-  return { c: "later", t: `Sin apuro · ${fechaTxt(due)}` };
+  // Si se paga con una tarjeta cuyo corte todavía no pasa, el monto final se sabe hasta el corte
+  const corte = corteAntesDe(tarjetaDePago(it), due);
+  if (corte && hoy <= corte) return { c: "later", t: `Corte ${fechaTxt(corte)} · paga ${fechaTxt(due)}` };
+  return { c: "later", t: `Paga hasta el ${fechaTxt(due)}` };
 }
 const esPago = it => it.source === "salary" && !it.envelope && !it.autoPaid && it.payWith !== "Cuenta de impuestos";
 const hoyISO = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; };
@@ -568,7 +585,7 @@ function dlgClasificar(id) {
     });
 }
 
-const VERSION_APP = "2026-11-18 · 8";
+const VERSION_APP = "2026-11-18 · 9";
 
 // ---------- lo que entra y a dónde va ----------
 // Cada entrada de dinero con los pagos que se hacen con ese dinero debajo.
