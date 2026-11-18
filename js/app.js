@@ -6,7 +6,7 @@ const $ = s => document.querySelector(s);
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const fmt = n => { n = ENG.r2(n || 0); const neg = n < -0.004; return (neg ? "−" : "") + "$" + Math.abs(n).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 }); };
 const money = n => { const s = fmt(n); const m = s.match(/^(−?)\$([\d,]+)\.(\d\d)$/); return m ? `${m[1]}<span class="cur">$</span>${m[2]}<span class="dec">.${m[3]}</span>` : s; };
-const fmt0 = n => "$" + Math.round(n || 0).toLocaleString("en-US");
+const fmt0 = n => { const r = Math.round(n || 0); return (r < 0 ? "−" : "") + "$" + Math.abs(r).toLocaleString("en-US"); };
 const num = v => { const x = parseFloat(String(v ?? "").replace(/[$,\s]/g, "")); return isFinite(x) ? x : 0; };
 const clone = o => JSON.parse(JSON.stringify(o));
 const ICONO_OK = /^[a-z0-9_]{1,40}$/;
@@ -387,7 +387,7 @@ function dlgClasificar(id) {
   const m = S.months[S.current], envs = m.items.filter(i => i.envelope), t = tarjetaDe(x.tarjeta), monto = ENG.r2(num(x.monto));
   const sug = sugerencia(x), envSug = sug && sug.startsWith("env:") ? envs.find(e => "env:" + (e.recId || e.id) === sug) : null;
   const marcado = envSug ? "env:" + envSug.id : sug === "card" && t ? "card" : sug === "skip" ? "skip" : envs.length ? "env:" + envs[0].id : t ? "card" : "skip";
-  const opciones = envs.map((e, i) => { const left = ENG.r2(e.amount - ENG.spentOf(e)); return `<label><input type="radio" name="dest" value="env:${esc(e.id)}" ${marcado === "env:" + e.id ? "checked" : ""}><span><b>${icoHtml(e)} ${esc(e.name.replace(/ \(.*\)/, ""))}</b><em class="num">quedan ${fmt0(left)}</em></span></label>`; })
+  const opciones = envs.map((e, i) => { const left = ENG.r2(e.amount - ENG.spentOf(e)); return `<label><input type="radio" name="dest" value="env:${esc(e.id)}" ${marcado === "env:" + e.id ? "checked" : ""}><span><b>${icoHtml(e)} ${esc(e.name.replace(/ \(.*\)/, ""))}</b><em class="num">${left < -0.5 ? `te pasaste ${fmt0(-left)}` : `quedan ${fmt0(Math.max(0, left))}`}</em></span></label>`; })
     .concat(t ? [`<label><input type="radio" name="dest" value="card" ${marcado === "card" ? "checked" : ""}><span><b>${ms("credit_card")} Solo a la tarjeta</b><em>compra aparte, sin sobre</em></span></label>`] : [])
     .concat([`<label><input type="radio" name="dest" value="skip" ${marcado === "skip" ? "checked" : ""}><span><b>${ms("block")} No va en el plan</b><em>ya lo anoté o no es mío</em></span></label>`]);
   openDlg(`<h3>${esc(x.comercio || "Cargo del banco")}</h3>
@@ -557,7 +557,7 @@ function dlgSpend(k, envId) {
   const payOpts = [["", "Débito o efectivo"]].concat(S.debts.filter(d => d.kind === "card" && !d.closed).map(d => [d.id, d.name + " (sube la deuda)"]));
   openDlg(`<h3>Anotar un gasto</h3><p class="hint">Se resta de lo que te queda en ese rubro.</p>
     ${fld("Monto", "amount", "", "number", 'required placeholder="$0.00"')}
-    <fieldset class="seg"><legend>Rubro</legend>${envs.slice().sort((x, y) => (y.recId === "super") - (x.recId === "super")).map((e, i) => { const sel0 = envId ? e.id === envId : i === 0; const left = ENG.r2(e.amount - ENG.spentOf(e)); return `<label><input type="radio" name="env" value="${esc(e.id)}" ${sel0 ? "checked" : ""}><span><b>${icoHtml(e)} ${esc(e.name.replace(/ \(.*\)/, ""))}</b><em class="num">quedan ${fmt0(left)}</em></span></label>`; }).join("")}</fieldset>
+    <fieldset class="seg"><legend>Rubro</legend>${envs.slice().sort((x, y) => (y.recId === "super") - (x.recId === "super")).map((e, i) => { const sel0 = envId ? e.id === envId : i === 0; const left = ENG.r2(e.amount - ENG.spentOf(e)); return `<label><input type="radio" name="env" value="${esc(e.id)}" ${sel0 ? "checked" : ""}><span><b>${icoHtml(e)} ${esc(e.name.replace(/ \(.*\)/, ""))}</b><em class="num">${left < -0.5 ? `te pasaste ${fmt0(-left)}` : `quedan ${fmt0(Math.max(0, left))}`}</em></span></label>`; }).join("")}</fieldset>
     ${fld("¿Qué fue?", "note", "", "text", 'placeholder="Súper Selectos, gasolinera, regalo…"')}
     ${sel("Pagado con", "card", "", payOpts)}
     <div class="actions"><button class="btn ghost" value="cancel">Cancelar</button><button class="btn primary" value="ok">Anotar</button></div>`,
