@@ -1,6 +1,6 @@
 # Mi plan — app de finanzas personales de Rudy
 
-App personal de presupuesto y deudas. Sustituye al artefacto "Mi plan" de claude.ai (referencia en `privado/mi-plan.html`, que no se sube). Toma ideas de la app de Jaime: https://github.com/JaimeCastroH/Finanzas
+App personal de presupuesto y deudas. **Desde el 18 nov 2026 es la app principal de Rudy** (antes usaba el artefacto "Mi plan" de claude.ai; su código queda como referencia en `privado/mi-plan.html`, que no se sube). Toma ideas de la app de Jaime: https://github.com/JaimeCastroH/Finanzas
 
 ## Reglas de oro
 
