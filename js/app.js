@@ -147,6 +147,24 @@ document.addEventListener("visibilitychange", () => {
   if (document.visibilityState === "hidden") ocultaDesde = Date.now();
   else if (ocultaDesde && Date.now() - ocultaDesde > Candado.minutos() * 60000) Candado.listo().then(() => location.reload());
 });
+// ---------- pedir un ajuste a Claude (sesión de Claude Code en la Mac, vía Remote Control) ----------
+const CLAUDE_URL = "https://claude.ai/code";
+function haceCuanto(iso) {
+  if (!iso) return "";
+  const min = Math.round((Date.now() - new Date(iso).getTime()) / 60000);
+  return min < 1 ? "hace un momento" : min < 60 ? `hace ${min} min` : min < 1440 ? `hace ${Math.round(min / 60)} h` : `el ${new Date(iso).toLocaleDateString("es-SV", { day: "numeric", month: "short" })}`;
+}
+function claudeHTML() {
+  const m = Datos.mac();
+  if (Date.now() - (m.revisado || 0) > 60000) Datos.revisarMac().then(() => { if (view === "ajustes") render(); });
+  const cuerpo = m.enLinea
+    ? `<div class="row"><div class="main"><span class="t"><i class="punto ok" aria-hidden="true"></i>Tu Mac está lista</span><span class="m">Claude puede revisar y ajustar tu plan. Te mostrará la vista previa y esperará tu visto bueno antes de guardar.</span></div></div>`
+    : `<div class="row apagado"><div class="main"><span class="t"><i class="punto" aria-hidden="true"></i>Tu Mac está fuera de línea</span><span class="m">Enciende tu Mac y abre la sesión de Claude en la carpeta de Mi plan.${m.ultimoLatido ? ` Último aviso ${haceCuanto(m.ultimoLatido)}.` : ""}</span></div></div>`;
+  return `<section class="block claude-box"><h2>Pedir un ajuste a Claude</h2><div class="list">${cuerpo}</div>
+    <div class="actions">${m.enLinea ? `<a class="btn primary" href="${CLAUDE_URL}" target="_blank" rel="noopener"><span class="ms" aria-hidden="true">forum</span>Abrir Claude</a>` : `<button class="btn" disabled aria-disabled="true"><span class="ms" aria-hidden="true">cloud_off</span>No disponible ahora</button>`}<button class="btn ghost" data-act="mac-revisar"><span class="ms" aria-hidden="true">refresh</span>Revisar</button></div>
+    ${m.enLinea ? `<p class="small muted claude-tip">Escríbele como a una persona, por ejemplo: <i>"Jaime me adelantó $500 más"</i> o <i>"sube el súper a $220 desde diciembre"</i>.</p>` : ""}</section>`;
+}
+
 function seguridadHTML() {
   if (!hayCandado()) return "";
   if (!Candado.activo()) return `<section class="block"><h2>Seguridad</h2><div class="list"><div class="row"><div class="main"><span class="t">${gIco("fingerprint")}Bloqueo con huella</span><span class="m">Pide tu huella o tu rostro para abrir la app y cifra tus datos en este teléfono.</span></div></div></div>
@@ -826,6 +844,7 @@ function vAjustes() {
   const log = (S.log || []).slice(-30).reverse();
   h += `<section class="block"><h2>Historial de cambios <small>lo último que hiciste</small></h2><div class="list">${log.length ? limitList(log.map(l => `<div class="row" style="min-height:48px"><div class="main"><span class="t" style="font-weight:400">${gIco("history")}${esc(l.t)}</span><span class="m">${new Date(l.at).toLocaleString("es-SV", { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" })}</span></div></div>`), 5, "Historial de cambios", "Lo último que hiciste en tu plan") : '<p class="empty">Aquí aparecerá cada cambio que hagas.</p>'}</div>
     <div class="actions">${undoStack.length ? `<button class="btn" data-act="undo"><span class="ms" aria-hidden="true">undo</span>Deshacer: ${esc(undoStack.at(-1).label)}</button>` : ""}</div></section>`;
+  h += claudeHTML();
   h += seguridadHTML();
   h += instalarHTML();
   h += `<section class="block"><h2>Tus datos</h2><div class="list"><div class="row"><div class="main"><span class="t">${gIco(Datos.estado().icono)}${esc(Datos.estado().titulo)}</span><span class="m">${esc(Datos.estado().detalle)}</span></div></div></div>
@@ -1161,6 +1180,7 @@ document.addEventListener("click", e => {
     case "export": { const txt = JSON.stringify(S); (navigator.clipboard ? navigator.clipboard.writeText(txt) : Promise.reject()).then(() => toast("Respaldo copiado")).catch(() => toast("No se pudo copiar")); break; }
     case "sync-now": Datos.sincronizar(true); break;
     case "candado-activar": dlgActivarCandado(); break;
+    case "mac-revisar": toast("Revisando tu Mac…"); Datos.revisarMac().then(m => { render(); toast(m.enLinea ? "Tu Mac está lista" : "Tu Mac sigue fuera de línea"); }); break;
     case "candado-bloquear": Candado.listo().then(() => location.reload()); break;
     case "candado-desactivar": confirmDlg("Desactivar el bloqueo", "La app ya no pedirá huella ni código, y tus datos en este teléfono quedarán sin cifrar.", "Desactivar", async () => { await Candado.desactivar(); render(); toast("Bloqueo desactivado"); }, true); break;
     case "instalar": if (promptInstalar) { promptInstalar.prompt(); promptInstalar.userChoice.finally(() => { promptInstalar = null; render(); }); } break;

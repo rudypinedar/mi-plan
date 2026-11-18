@@ -693,3 +693,12 @@ body.bloqueada .shell{visibility:hidden}
 .candado-caja .btn .ms{margin-right:8px}
 .candado-caja .link{display:block;margin:12px auto 0;background:none;border:0;color:var(--jade);font-weight:700;font-size:15px;padding:8px 12px;min-height:44px}
 .candado-caja .link.tenue{color:var(--muted);font-weight:400;font-size:14px}
+
+/* Pedir un ajuste a Claude */
+.punto{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:10px;vertical-align:1px;background:var(--muted);opacity:.6}
+.punto.ok{background:#3FAE6A;opacity:1;box-shadow:0 0 0 4px rgba(63,174,106,.18)}
+.claude-box .row.apagado .t{color:var(--muted)}
+.claude-box a.btn{text-decoration:none;display:inline-flex;align-items:center}
+.btn[disabled]{opacity:.55;cursor:not-allowed}
+.claude-tip{margin:10px 2px 0}
+.claude-box .row .m{white-space:normal;overflow:visible}

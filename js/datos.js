@@ -9,7 +9,7 @@
  */
 (function (root) {
   const K_CONEXION = "miplan.conexion", K_DATOS = "miplan.datos";
-  const K_BANDEJA = "miplan.porclasificar", K_CLASIFICADOS = "miplan.clasificados", K_ESTADOS = "miplan.estados";
+  const K_BANDEJA = "miplan.porclasificar", K_CLASIFICADOS = "miplan.clasificados", K_ESTADOS = "miplan.estados", K_MAC = "miplan.mac";
   const ESPERA = 1500, TIEMPO_MAX = 30000;
 
   let cb = { alEstado() {}, alRemoto() {}, alConflicto() {}, alBandeja() {} };
@@ -146,6 +146,7 @@
       if (nuevo) cb.alRemoto(r.plan);
       guardarBandeja(r.porClasificar);
       if (Array.isArray(r.estadosCuenta)) escribirLS(K_ESTADOS, r.estadosCuenta);
+      if (r.mac) escribirLS(K_MAC, Object.assign({ revisado: Date.now() }, r.mac));
       cb.alEstado("", "Al día con tu Sheet");
     } catch (_) { cb.alEstado("err", "No se pudo conectar: usando la copia del teléfono"); }
   }
@@ -155,6 +156,15 @@
   function usarRemoto(plan, version) { clearTimeout(timer); guardarLocal(plan, { version, pendiente: false, sincronizado: Date.now() }); cb.alEstado("", "Al día con tu Sheet"); }
 
   const estadosCuenta = () => leerLS(K_ESTADOS) || [];
+  // ¿Está la Mac de Rudy con una sesión de Claude abierta? (latido de menos de 5 minutos)
+  function mac() {
+    const m = leerLS(K_MAC); if (!m || !m.ultimoLatido) return { enLinea: false, ultimoLatido: "", revisado: m ? m.revisado : 0 };
+    return { enLinea: Date.now() - new Date(m.ultimoLatido).getTime() < 5 * 60 * 1000, ultimoLatido: m.ultimoLatido, revisado: m.revisado || 0 };
+  }
+  async function revisarMac() {
+    try { const r = await llamar("estadoMac", {}); if (r.ok && r.mac) escribirLS(K_MAC, Object.assign({ revisado: Date.now() }, r.mac)); } catch (_) {}
+    return mac();
+  }
   // Acciones sueltas del Apps Script (por ejemplo, actualizar el calendario)
   async function accion(nombre, extra) { return llamar(nombre, extra || {}); }
 
@@ -174,6 +184,6 @@
     }
   }
 
-  root.Datos = { iniciar, leerCodigo, conectado, conectar, desconectar, local, cambio, subir, sincronizar, quedarmeConEste, usarRemoto, estado, bandeja, clasificar, estadosCuenta, accion };
+  root.Datos = { iniciar, leerCodigo, conectado, conectar, desconectar, local, cambio, subir, sincronizar, quedarmeConEste, usarRemoto, estado, bandeja, clasificar, estadosCuenta, accion, mac, revisarMac };
   if (typeof module !== "undefined" && module.exports) module.exports = root.Datos;
 })(typeof self !== "undefined" ? self : this);
