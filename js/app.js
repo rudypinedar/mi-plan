@@ -109,13 +109,13 @@ async function boot() {
   render();
   Datos.iniciar({
     alEstado: setSave,
-    alRemoto: plan => { const habia = !!S; S = plan; prepararPlan(); render(); if (habia) toast("Actualizado desde tu Sheet"); },
+    alRemoto: plan => { const habia = !!S; S = plan; prepararPlan(); if (!document.querySelector("#dlg[open]")) render(); if (habia) toast("Actualizado desde tu Sheet"); },
     alConflicto: avisarConflicto,
     alBandeja: lista => { if (S && view === "mes") render(); },
   });
   if (!Datos.conectado()) { pantallaConexion(); return; }
   const loc = Datos.local();
-  if (loc && loc.plan && loc.plan.months) { S = loc.plan; prepararPlan(); setSave(loc.pendiente ? "busy" : "", loc.pendiente ? "Cambios por subir" : "Copia del teléfono"); render(); }
+  if (loc && loc.plan && loc.plan.months) { S = loc.plan; prepararPlan(); setSave(loc.pendiente ? "busy" : "", loc.pendiente ? "Cambios por subir" : "Copia del teléfono"); render(); abrirAccesoDirecto(); }
   await Datos.sincronizar();
   if (!S) { pantallaConexion("No se pudo cargar tu plan. Revisa tu señal o vuelve a pegar el código."); return; }
   abrirAccesoDirecto();
