@@ -50,14 +50,29 @@ Todas se mandan por `POST` con un JSON en el cuerpo y `Content-Type: text/plain`
   - Las compras rechazadas se anotan solo en la bitácora.
 - **Duplicados:** si una misma compra llega por dos correos distintos (misma tarjeta, monto y día), entra una sola vez.
 - **Primera revisión:** solo toma nota de los correos que ya existían, porque esas compras ya se anotaron a mano.
-- **Qué no hace:** no borra correos ni los marca como leídos. Solo agrega la etiqueta `MiPlan/procesado` a los hilos que usó.
+- **Qué no hace:** el permiso es de solo lectura, así que no puede borrar, marcar ni etiquetar correos. Para no repetir, recuerda los últimos 300 correos que ya revisó.
 
 ## Seguridad
 
-- Las claves viven en **Propiedades del script**, nunca en el código. La función `crearClaves()` las genera y las muestra una sola vez.
-- `CLAVE_INGRESO` solo puede agregar a `por_clasificar`; no puede leer nada.
-- Después de 5 claves equivocadas, el acceso se bloquea 15 minutos para todos. La función `desbloquear()` lo quita.
-- Si no hay `CLAVE_APP` configurada, no entra nadie.
+- **Claves:** viven en **Propiedades del script**, nunca en el código.
+  - `CLAVE_INGRESO` solo puede agregar a `por_clasificar`; no puede leer nada.
+  - Una clave correcta **siempre** entra: no hay bloqueo por intentos, para que nadie pueda dejar fuera a Rudy ni a Atajos. Las incorrectas solo se anotan en `bitacora` (una fila cada 10 minutos como máximo) y reciben el mismo mensaje genérico: "Clave incorrecta".
+- **Instalación:** `instalar` solo funciona con un `TOKEN_INSTALACION` puesto a mano en Propiedades del script, y mientras no haya claves. El token se borra al usarlo.
+- **Permisos mínimos:**
+  - Gmail en **solo lectura** (`gmail.readonly`, con la API de Gmail). El script no puede enviar, borrar ni modificar correos.
+  - Drive solo para **los archivos que el propio script crea** (`drive.file`).
+  - Sheets solo para **este** Sheet (`spreadsheets.currentonly`).
+  - Calendario, para crear y actualizar "Mi plan · pagos".
+- **Correos:** solo se aceptan correos que pasan la verificación del remitente (DMARC, o SPF/DKIM del mismo dominio). Los demás se anotan en `bitacora` y se descartan.
+- **Datos del cliente:**
+  - `guardar` revisa la forma del plan y no acepta claves que empiecen con `_` ni `constructor`/`prototype`. Escribe primero y después borra lo que sobra, así una falla a medias nunca deja una pestaña vacía.
+  - Ninguna celda puede quedar como fórmula: lo que empieza con `= + - @` se guarda con un apóstrofo.
+- **Textos de SMS o correo:** lo que no se interpreta no se guarda; solo una huella SHA-256. En `bitacora` se tapan enlaces, correos, teléfonos y números de 4 o más dígitos.
+- **App:**
+  - Todo lo que viene del Sheet se escapa antes de mostrarse, y los íconos y bancos solo aceptan letras, números y `_`.
+  - La política de seguridad no permite scripts en línea ni de otros sitios.
+  - La librería de Excel (SheetJS 0.20.3) vive dentro del repo.
+- **Pendiente:** bloqueo con Face ID (Fase 2), para proteger la clave guardada en el teléfono.
 
 ## Instalación (una vez)
 
@@ -69,7 +84,7 @@ Ya está hecha. Así se hizo, por si hay que repetirla:
    - Guarda los identificadores en `.clasp.json`, que no se sube.
 3. `npx @google/clasp push --force` y luego `npx @google/clasp create-deployment`. La URL `/exec` va en `privado/conexion.json`.
 4. Una sola vez en el navegador: abre el editor del script, ejecuta `configurar` y acepta los permisos (solo pide esta hoja).
-5. `node herramientas/instalar.js`:
+5. En Propiedades del script, crea `TOKEN_INSTALACION` con un valor aleatorio. Luego ejecuta `MIPLAN_TOKEN=<ese valor> node herramientas/instalar.js`:
    - Genera las dos claves en `privado/claves.json`, que no se sube.
    - Las instala con la acción `instalar`, que solo funciona mientras no haya claves.
    - Importa `privado/respaldo.json`.
