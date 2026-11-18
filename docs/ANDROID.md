@@ -64,7 +64,15 @@ Formatos que ya se reconocen:
 - **Cuscatlán:** "Alerta de compra … Tarjeta de Credito Titular 1234 por USD88.32 en COMERCIO el 2026-11-08 15:17".
 - **BAC:** "Alertas PRF VISA 1234: has realizado una compra por USD 109.99 en el comercio: COMERCIO 2026/11/08 16:32:03".
 
-## 3. Pendiente
+## 3. Bloqueo con huella
 
-- **Bloqueo con huella o rostro:** el mismo trabajo del Face ID de iPhone (Fase 2) sirve para la huella de Android.
+**Más → Seguridad → Activar bloqueo**:
+
+1. Crea un código de 4 a 6 números. Es el respaldo si la huella falla.
+2. El teléfono te pide la huella o el rostro.
+
+Desde ahí la app pide la huella al abrirse, y tus datos en el teléfono quedan cifrados. Si olvidas el código: "Olvidé mi código" borra la copia del teléfono y vuelves a conectar con el código de Bitwarden. Tus datos siguen en el Sheet.
+
+## 4. Pendiente
+
 - **Notificaciones** (Fase 5): en Android funcionan incluso sin instalar la app. Por ahora los recordatorios de pago llegan por el calendario "Mi plan · pagos".

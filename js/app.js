@@ -105,8 +105,79 @@ function abrirAccesoDirecto() {
   else if (a === "bandeja") { view = "mes"; viewMonth = S.current; render(); const el = document.querySelector(".pcbox"); if (el) el.scrollIntoView({ block: "start" }); else toast("No tienes cargos por clasificar"); }
 }
 
+// ---------- candado: huella o código (js/candado.js) ----------
+const hayCandado = () => typeof Candado !== "undefined";
+function pantallaCandado() {
+  return new Promise(resolve => {
+    document.body.classList.add("bloqueada");
+    const huella = Candado.conHuella();
+    const el = document.createElement("div"); el.id = "candado"; el.setAttribute("role", "dialog"); el.setAttribute("aria-modal", "true"); el.setAttribute("aria-label", "Mi plan está bloqueada");
+    el.innerHTML = `<div class="candado-caja"><div class="conectar-ico">${ms("lock", "fill")}</div><h2>Mi plan está bloqueada</h2>
+      <p class="muted">${huella ? "Usa tu huella o tu rostro para entrar." : "Escribe tu código para entrar."}</p>
+      ${huella ? `<button class="btn primary wide" id="cHuella" type="button">${ms("fingerprint")}Desbloquear con huella</button>` : ""}
+      <form id="cPin" ${huella ? "hidden" : ""}><div class="fld"><label for="f_pin">Código</label><input id="f_pin" name="pin" type="password" inputmode="numeric" pattern="[0-9]*" autocomplete="off" maxlength="6" required></div><button class="btn ${huella ? "" : "primary"} wide" type="submit">Entrar</button></form>
+      ${huella ? '<button class="link" id="cUsarPin" type="button">Usar mi código</button>' : ""}
+      <p class="conectar-msg" role="alert" id="cMsg"></p>
+      <button class="link tenue" id="cOlvide" type="button">Olvidé mi código</button></div>`;
+    document.body.appendChild(el);
+    const msg = t => { el.querySelector("#cMsg").textContent = t || ""; };
+    const abrir = () => { el.remove(); document.body.classList.remove("bloqueada"); resolve(); };
+    const btn = el.querySelector("#cHuella");
+    const probarHuella = async auto => { msg(""); btn.disabled = true; const r = await Candado.conHuellaAhora(); btn.disabled = false; if (r.ok) abrir(); else if (!auto) msg(r.error); };
+    if (btn) {
+      btn.onclick = () => probarHuella(false);
+      el.querySelector("#cUsarPin").onclick = () => { el.querySelector("#cPin").hidden = false; el.querySelector("#f_pin").focus(); };
+      probarHuella(true); // se pide sola al abrir (si el navegador lo permite sin tocar)
+    } else el.querySelector("#f_pin").focus();
+    el.querySelector("#cPin").onsubmit = async e => {
+      e.preventDefault(); const f = e.target, b = f.querySelector("button");
+      b.disabled = true; msg("Revisando…");
+      const r = await Candado.conPin(f.elements.pin.value); b.disabled = false;
+      if (r.ok) abrir(); else { msg(r.error); f.elements.pin.value = ""; }
+    };
+    el.querySelector("#cOlvide").onclick = () => {
+      if (confirm("Se borrará de este teléfono la copia de tu plan y la conexión. Tus datos siguen seguros en tu Google Sheet: después vuelves a conectar con el código de Bitwarden. ¿Continuar?")) { Candado.borrarTodo(); location.reload(); }
+    };
+  });
+}
+// Se vuelve a bloquear si la app pasó más de N minutos en segundo plano
+let ocultaDesde = 0;
+document.addEventListener("visibilitychange", () => {
+  if (!hayCandado() || !Candado.activo()) return;
+  if (document.visibilityState === "hidden") ocultaDesde = Date.now();
+  else if (ocultaDesde && Date.now() - ocultaDesde > Candado.minutos() * 60000) Candado.listo().then(() => location.reload());
+});
+function seguridadHTML() {
+  if (!hayCandado()) return "";
+  if (!Candado.activo()) return `<section class="block"><h2>Seguridad</h2><div class="list"><div class="row"><div class="main"><span class="t">${gIco("fingerprint")}Bloqueo con huella</span><span class="m">Pide tu huella o tu rostro para abrir la app y cifra tus datos en este teléfono.</span></div></div></div>
+    <div class="actions"><button class="btn primary" data-act="candado-activar"><span class="ms" aria-hidden="true">lock</span>Activar bloqueo</button></div></section>`;
+  return `<section class="block"><h2>Seguridad</h2><div class="list"><div class="row"><div class="main"><span class="t">${gIco("verified_user")}Bloqueo activado</span><span class="m">${Candado.conHuella() ? "Se abre con tu huella o tu rostro; tu código sirve de respaldo." : "Se abre con tu código (este navegador no permite cifrar con la huella)."} Tus datos en este teléfono están cifrados. Se bloquea sola tras ${Candado.minutos()} minutos sin usarla.</span></div></div></div>
+    <div class="actions"><button class="btn" data-act="candado-bloquear"><span class="ms" aria-hidden="true">lock</span>Bloquear ahora</button><button class="btn danger" data-act="candado-desactivar"><span class="ms" aria-hidden="true">lock_open</span>Desactivar bloqueo</button></div></section>`;
+}
+function dlgActivarCandado() {
+  const pinFld = (lbl, n) => fld(lbl, n, "", "password", 'inputmode="numeric" pattern="[0-9]*" maxlength="6" autocomplete="new-password" required');
+  openDlg(`<h3>Activar bloqueo</h3><p class="hint">Primero crea un código de 4 a 6 números: sirve si la huella falla. Luego el teléfono te pedirá tu huella o tu rostro.</p>
+    ${pinFld("Código nuevo", "pin1")}${pinFld("Repite el código", "pin2")}
+    <div class="actions"><button class="btn ghost" value="cancel">Cancelar</button><button class="btn primary" value="ok">Continuar</button></div>`, f => {
+    const a = g(f, "pin1"), b = g(f, "pin2");
+    if (!Candado.pinValido(a)) { toast("El código debe tener de 4 a 6 números"); return false; }
+    if (a !== b) { toast("Los dos códigos no coinciden"); return false; }
+    activarCandado(a);
+  });
+}
+async function activarCandado(pin) {
+  let prf = null;
+  if (await Candado.soportaHuella()) {
+    try { prf = await Candado.registrarHuella(); } catch (_) { toast("No se registró la huella: se activa solo con tu código"); }
+    if (prf && !prf.salida) { prf = null; toast("Este navegador no permite cifrar con la huella: se usará tu código"); }
+  }
+  try { const r = await Candado.activar({ pin, prf }); render(); toast(r.conHuella ? "Listo: la app se abre con tu huella" : "Listo: la app se abre con tu código"); }
+  catch (e) { toast(e.message || "No se pudo activar el bloqueo"); }
+}
+
 async function boot() {
   render();
+  if (hayCandado() && Candado.activo() && !Candado.abierto()) await pantallaCandado();
   Datos.iniciar({
     alEstado: setSave,
     alRemoto: plan => { const habia = !!S; S = plan; prepararPlan(); if (!document.querySelector("#dlg[open]")) render(); if (habia) toast("Actualizado desde tu Sheet"); },
@@ -755,6 +826,7 @@ function vAjustes() {
   const log = (S.log || []).slice(-30).reverse();
   h += `<section class="block"><h2>Historial de cambios <small>lo último que hiciste</small></h2><div class="list">${log.length ? limitList(log.map(l => `<div class="row" style="min-height:48px"><div class="main"><span class="t" style="font-weight:400">${gIco("history")}${esc(l.t)}</span><span class="m">${new Date(l.at).toLocaleString("es-SV", { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" })}</span></div></div>`), 5, "Historial de cambios", "Lo último que hiciste en tu plan") : '<p class="empty">Aquí aparecerá cada cambio que hagas.</p>'}</div>
     <div class="actions">${undoStack.length ? `<button class="btn" data-act="undo"><span class="ms" aria-hidden="true">undo</span>Deshacer: ${esc(undoStack.at(-1).label)}</button>` : ""}</div></section>`;
+  h += seguridadHTML();
   h += instalarHTML();
   h += `<section class="block"><h2>Tus datos</h2><div class="list"><div class="row"><div class="main"><span class="t">${gIco(Datos.estado().icono)}${esc(Datos.estado().titulo)}</span><span class="m">${esc(Datos.estado().detalle)}</span></div></div></div>
     <div class="actions"><button class="btn primary" data-act="sync-now"><span class="ms" aria-hidden="true">sync</span>Sincronizar ahora</button><button class="btn" data-act="calendario"><span class="ms" aria-hidden="true">event</span>Actualizar calendario</button><button class="btn" data-act="xlsx"><span class="ms" aria-hidden="true">download</span>Descargar Excel</button><button class="btn" data-act="export"><span class="ms" aria-hidden="true">content_copy</span>Copiar respaldo</button><button class="btn danger" data-act="desconectar"><span class="ms" aria-hidden="true">logout</span>Desconectar este teléfono</button></div></section></div></div>`;
@@ -1088,6 +1160,9 @@ document.addEventListener("click", e => {
     case "xlsx": exportXlsx(); break;
     case "export": { const txt = JSON.stringify(S); (navigator.clipboard ? navigator.clipboard.writeText(txt) : Promise.reject()).then(() => toast("Respaldo copiado")).catch(() => toast("No se pudo copiar")); break; }
     case "sync-now": Datos.sincronizar(true); break;
+    case "candado-activar": dlgActivarCandado(); break;
+    case "candado-bloquear": Candado.listo().then(() => location.reload()); break;
+    case "candado-desactivar": confirmDlg("Desactivar el bloqueo", "La app ya no pedirá huella ni código, y tus datos en este teléfono quedarán sin cifrar.", "Desactivar", async () => { await Candado.desactivar(); render(); toast("Bloqueo desactivado"); }, true); break;
     case "instalar": if (promptInstalar) { promptInstalar.prompt(); promptInstalar.userChoice.finally(() => { promptInstalar = null; render(); }); } break;
     case "calendario": toast("Actualizando tu calendario…"); Datos.accion("calendario").then(r => toast(r.ok ? `Listo: ${r.eventos} ${r.eventos === 1 ? "evento" : "eventos"} en "Mi plan · pagos"` : (r.error || "No se pudo actualizar"))).catch(() => toast("Sin señal: inténtalo después")); break;
     case "desconectar": confirmDlg("Desconectar este teléfono", "Se borra de este teléfono la copia de tu plan y la clave. Tus datos siguen seguros en tu Google Sheet.", "Desconectar", () => { Datos.desconectar(); location.reload(); }, true); break;

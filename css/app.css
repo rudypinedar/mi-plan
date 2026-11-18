@@ -681,3 +681,15 @@ body.sin-plan nav.tabs{display:none}
 .sumgrid>div{container-type:inline-size}
 .sumgrid b{font-size:clamp(14px,11cqi,18px)}
 .row .t,.dc .t,.pgh b{overflow-wrap:anywhere}
+
+/* Candado: pantalla de bloqueo */
+body.bloqueada .shell{visibility:hidden}
+#candado{position:fixed;inset:0;z-index:100;display:grid;place-items:center;padding:24px 16px calc(24px + env(safe-area-inset-bottom,0px));background:var(--bg)}
+.candado-caja{width:100%;max-width:380px;padding:28px 22px;border-radius:28px;text-align:center;background:var(--glass);border:1px solid var(--glass-line);box-shadow:var(--glass-hi),var(--glass-shadow);-webkit-backdrop-filter:var(--glass-blur);backdrop-filter:var(--glass-blur)}
+.candado-caja h2{font-family:var(--f-num);font-weight:600;font-size:22px;margin:12px 0 6px}
+.candado-caja p.muted{margin:0 0 18px}
+.candado-caja form{text-align:left;margin-top:12px}
+.candado-caja #f_pin{font-size:24px;letter-spacing:.4em;text-align:center}
+.candado-caja .btn .ms{margin-right:8px}
+.candado-caja .link{display:block;margin:12px auto 0;background:none;border:0;color:var(--jade);font-weight:700;font-size:15px;padding:8px 12px;min-height:44px}
+.candado-caja .link.tenue{color:var(--muted);font-weight:400;font-size:14px}

@@ -74,7 +74,12 @@ Todas se mandan por `POST` con un JSON en el cuerpo y `Content-Type: text/plain`
   - Todo lo que viene del Sheet se escapa antes de mostrarse, y los íconos y bancos solo aceptan letras, números y `_`.
   - La política de seguridad no permite scripts en línea ni de otros sitios.
   - La librería de Excel (SheetJS 0.20.3) vive dentro del repo.
-- **Pendiente:** bloqueo con Face ID (Fase 2), para proteger la clave guardada en el teléfono.
+- **Bloqueo con huella (`js/candado.js`):** se activa en **Más → Seguridad**.
+  - Una llave aleatoria (AES-GCM 256) cifra en el teléfono la conexión, la copia del plan, la bandeja y los estados de cuenta.
+  - Esa llave se guarda envuelta dos veces: con el secreto PRF de la huella o el rostro (WebAuthn) y con un código de 4 a 6 dígitos (PBKDF2, 310,000 vueltas).
+  - Tras 3 códigos malos, cada intento espera más.
+  - Se bloquea sola tras 5 minutos en segundo plano.
+  - Si el navegador no da PRF, se usa solo el código.
 
 ## Instalación (una vez)
 
