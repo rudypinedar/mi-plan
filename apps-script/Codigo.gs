@@ -11,6 +11,8 @@
  *   { accion: "leer",     clave }
  *   { accion: "guardar",  clave, version, plan, clasificados? }
  *   { accion: "ingresar", clave, texto, origen? }
+ *   { accion: "revisarCorreo", clave }   revisa Gmail ahora
+ *   { accion: "activarCorreo", clave }   revisa Gmail cada 15 minutos
  *   { accion: "instalar", claveApp, claveIngreso }   (solo la primera vez)
  * y la respuesta siempre es JSON: { ok: true, ... } o { ok: false, error }.
  *
@@ -31,6 +33,7 @@ var PESTANAS = {
   meses:          ['mes', 'cerrado', 'deuda_inicio', 'deuda_cierre', 'datos'],
   movimientos:    ['mes', 'nombre', 'categoria', 'tipo', 'paga_con', 'monto', 'pagado', 'monto_pagado', 'deuda', 'fondo'],
   por_clasificar: ['id', 'recibido', 'origen', 'fecha', 'monto', 'comercio', 'tarjeta', 'estado', 'asignado_a', 'nota', 'huella'],
+  estados_cuenta: ['recibido', 'banco', 'tarjeta', 'fecha_corte', 'fecha_pago', 'pago_minimo', 'pago_contado', 'huella'],
   bitacora:       ['fecha', 'origen', 'accion', 'detalle']
 };
 
@@ -57,6 +60,8 @@ function doPost(e) {
     if (p.accion === 'leer') return json_(leer_());
     if (p.accion === 'guardar') return json_(conCandado_(function () { return guardar_(p); }));
     if (p.accion === 'ingresar') return json_(conCandado_(function () { return ingresar_(p); }));
+    if (p.accion === 'revisarCorreo') return json_(revisarCorreo());
+    if (p.accion === 'activarCorreo') return json_(activarCorreo());
     return json_({ ok: false, error: 'Acción desconocida' });
   } catch (err) {
     anotar_('app', 'error', String(err && err.message || err));
@@ -172,14 +177,27 @@ function marcarClasificados_(lista) {
 // ---------------------------------------------------------------- ingresar
 
 function ingresar_(p) {
-  var texto = String(p.texto || '').slice(0, 2000);
+  var texto = String(p.texto || '').slice(0, 3000);
   if (!texto.trim()) return { ok: false, error: 'Falta el texto del mensaje' };
-  var origen = String(p.origen || 'sms').slice(0, 20);
-  var m = interpretar(texto);
-  var huella = m.ok ? [m.tarjeta, m.monto, m.fecha].join('|') : 'txt|' + texto.trim();
+  return agregarMovimiento_(texto, String(p.origen || 'sms').slice(0, 20));
+}
 
-  var ya = leerTabla_('por_clasificar').some(function (f) { return f.huella === huella; });
-  if (ya) return { ok: true, duplicado: true };
+// Interpreta un aviso (SMS o correo) y lo deja en por_clasificar sin duplicar.
+// Una misma compra puede llegar por dos avisos distintos (por ejemplo, los dos
+// correos de BAC): si coincide tarjeta, monto y día pero el formato es otro, es
+// la misma compra. Si el formato es el mismo y la hora cambia, es otra compra.
+function agregarMovimiento_(texto, origen) {
+  var m = interpretar(texto);
+  if (m.ok && m.ignorar) { anotar_(origen, 'ignorado', m.motivo + ' · ' + limpiarTexto(texto)); return { ok: true, ignorado: m.motivo }; }
+  var huella = m.ok ? [m.tarjeta, m.monto, m.fecha, m.formato].join('|') : 'txt|' + limpiarTexto(texto).trim().slice(0, 200);
+  var dia = m.ok ? String(m.fecha).slice(0, 10) : '';
+  var dup = leerTabla_('por_clasificar').some(function (f) {
+    if (f.huella === huella) return true;
+    if (!m.ok) return false;
+    var h = String(f.huella).split('|');
+    return h.length === 4 && h[0] === m.tarjeta && Number(h[1]) === m.monto && h[2].slice(0, 10) === dia && h[3] !== m.formato;
+  });
+  if (dup) return { ok: true, duplicado: true };
 
   var fila = {
     id: Utilities.getUuid().slice(0, 8), recibido: new Date().toISOString(), origen: origen,
@@ -191,26 +209,150 @@ function ingresar_(p) {
   return { ok: true, id: fila.id, interpretado: m.ok };
 }
 
-// Lee alertas de compra de los bancos. Devuelve { ok, monto, comercio, fecha, tarjeta }
+// ---------------------------------------------------------------- correo (Gmail)
+
+// Solo se leen correos de estos remitentes. Se puede cambiar sin tocar el
+// código con la propiedad BUSQUEDA_CORREO en Propiedades del script.
+var BUSQUEDA_CORREO = 'from:(baccredomatic.com OR baccredomatic.sv OR bancocuscatlan.com) newer_than:3d';
+var ETIQUETA_CORREO = 'MiPlan/procesado';
+var MAX_VISTOS = 300;
+
+// Busca avisos de compra y estados de cuenta en Gmail. Las compras van a
+// por_clasificar; los estados de cuenta, a estados_cuenta. Lo demás (transferencias,
+// promociones, códigos) se ignora. No borra ni marca como leído ningún correo.
+function revisarCorreo() {
+  var lock = LockService.getScriptLock();
+  if (!lock.tryLock(30000)) return { ok: false, error: 'Ocupado' };
+  try {
+    var props = PropertiesService.getScriptProperties();
+    var q = props.getProperty('BUSQUEDA_CORREO') || BUSQUEDA_CORREO;
+    // Primera vez: solo se toma nota de lo que ya está en el correo (esas compras
+    // ya se anotaron a mano). Desde ahí entran solo las nuevas.
+    var inicial = props.getProperty('CORREOS_VISTOS') == null;
+    var vistos = JSON.parse(props.getProperty('CORREOS_VISTOS') || '[]');
+    var yaVisto = {}; vistos.forEach(function (id) { yaVisto[id] = true; });
+    var etiqueta = GmailApp.getUserLabelByName(ETIQUETA_CORREO) || GmailApp.createLabel(ETIQUETA_CORREO);
+    var r = { ok: true, inicial: inicial, revisados: 0, compras: 0, duplicados: 0, estados: 0, ignorados: 0, anteriores: 0 };
+    GmailApp.search(q, 0, 50).forEach(function (hilo) {
+      var tocado = false;
+      hilo.getMessages().forEach(function (m) {
+        var id = m.getId(); if (yaVisto[id]) return;
+        yaVisto[id] = true; vistos.push(id); r.revisados++;
+        var texto = textoDe_(m);
+        if (interpretar(texto).ok) {
+          if (inicial) { r.anteriores++; return; }
+          var x = agregarMovimiento_(texto, 'correo'); tocado = true;
+          if (x.duplicado) r.duplicados++; else if (x.ignorado) r.ignorados++; else r.compras++;
+          return;
+        }
+        var e = interpretarEstado(texto);
+        if (e.ok) { if (guardarEstado_(e, m.getFrom())) r.estados++; tocado = true; return; }
+        r.ignorados++;
+      });
+      if (tocado) hilo.addLabel(etiqueta);
+    });
+    props.setProperty('CORREOS_VISTOS', JSON.stringify(vistos.slice(-MAX_VISTOS)));
+    props.setProperty('CORREO_ULTIMA', new Date().toISOString());
+    if (r.compras || r.estados) anotar_('correo', 'revisar', JSON.stringify(r));
+    return r;
+  } finally { lock.releaseLock(); }
+}
+
+function guardarEstado_(e, remitente) {
+  var huella = [e.tarjeta, e.fecha_corte].join('|');
+  if (leerTabla_('estados_cuenta').some(function (f) { return f.huella === huella; })) return false;
+  var banco = /cuscatlan/i.test(remitente) ? 'Cuscatlán' : /bac/i.test(remitente) ? 'BAC' : '';
+  agregarFila_('estados_cuenta', { recibido: new Date().toISOString(), banco: banco, tarjeta: e.tarjeta, fecha_corte: e.fecha_corte,
+    fecha_pago: e.fecha_pago, pago_minimo: e.pago_minimo, pago_contado: e.pago_contado, huella: huella });
+  return true;
+}
+
+// Crea (una sola vez) el disparador que revisa el correo cada 15 minutos
+function activarCorreo() {
+  var ya = ScriptApp.getProjectTriggers().some(function (t) { return t.getHandlerFunction() === 'revisarCorreo'; });
+  if (!ya) ScriptApp.newTrigger('revisarCorreo').timeBased().everyMinutes(15).create();
+  var r = revisarCorreo();
+  r.activado = true; r.yaEstaba = ya;
+  return r;
+}
+
+// Texto plano de un correo (si solo trae HTML, se le quitan las etiquetas)
+function textoDe_(m) {
+  var t = m.getPlainBody();
+  if (!t || t.length < 20) t = String(m.getBody()).replace(/<style[\s\S]*?<\/style>/gi, ' ').replace(/<[^>]+>/g, ' ').replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&');
+  return String(t).replace(/\s+/g, ' ').trim();
+}
+
+/** Se ejecuta UNA vez a mano en el editor para aceptar el permiso de Gmail. */
+function autorizar() {
+  GmailApp.getInboxUnreadCount();
+  ScriptApp.getProjectTriggers();
+  Logger.log('Listo: permisos de Gmail aceptados.');
+}
+
+// Lee avisos de compra de los bancos. Devuelve
+// { ok, monto, comercio, fecha ('AAAA-MM-DD HH:MM'), tarjeta (últimos 4), formato }
+// o { ok: true, ignorar: true, motivo } si es una compra rechazada.
 function interpretar(texto) {
   var t = String(texto).replace(/\s+/g, ' ');
-  var x;
-  // "... Tarjeta de Credito Titular 1234 por USD88.32 en COMERCIO el 2026-11-08 15:17. ..."
+  var x, r;
+  var listo = function (o) { o.ok = true; o.comercio = String(o.comercio).replace(/\s+/g, ' ').trim(); return o; };
+  var rechazada = function (estado) { return /rechaz|denegad|declin/i.test(estado || ''); };
+
+  // SMS Cuscatlán: "... Tarjeta de Credito Titular 1234 por USD88.32 en COMERCIO el 2026-11-08 15:17. ..."
   x = t.match(/Tarjeta.*?(\d{4}) por USD\s?([\d,]+\.\d{2}) en (.+?) el (\d{4}-\d{2}-\d{2})[ T](\d{1,2}:\d{2})/i);
-  if (x) return { ok: true, tarjeta: x[1], monto: num_(x[2]), comercio: x[3].trim(), fecha: x[4] + ' ' + x[5] };
-  // "... VISA 1234: has realizado una compra por USD 109.99 en el comercio: COMERCIO 2026/11/08 16:32:03 ..."
+  if (x) return listo({ tarjeta: x[1], monto: num_(x[2]), comercio: x[3], fecha: x[4] + ' ' + hora_(x[5]), formato: 'cusca-sms' });
+
+  // SMS BAC: "... VISA 1234: has realizado una compra por USD 109.99 en el comercio: COMERCIO 2026/11/08 16:32:03 ..."
   x = t.match(/(\d{4}): has realizado una compra por USD\s?([\d,]+\.\d{2}) en el comercio:\s*(.+?)\s+(\d{4})\/(\d{2})\/(\d{2}) (\d{1,2}:\d{2})/i);
-  if (x) return { ok: true, tarjeta: x[1], monto: num_(x[2]), comercio: x[3].trim(), fecha: x[4] + '-' + x[5] + '-' + x[6] + ' ' + x[7] };
+  if (x) return listo({ tarjeta: x[1], monto: num_(x[2]), comercio: x[3], fecha: x[4] + '-' + x[5] + '-' + x[6] + ' ' + hora_(x[7]), formato: 'bac-sms' });
+
+  // Correo BAC "Alerta PRF": "... compra con tu tarjeta VISA terminada en 1234 Detalles del movimiento: Comercio Monto
+  //   COMERCIO 1,240.19 Fecha y hora 2026/11/15-17:55:36 Tipo de la compra Estado Internet Aprobada"
+  x = t.match(/terminada en (\d{4}).*?Comercio Monto (.+?) ([\d,]+\.\d{2}) Fecha y hora (\d{4})\/(\d{2})\/(\d{2})[- ](\d{1,2}:\d{2})(?::\d{2})?(?: Tipo de la compra Estado (\S+) (\S+))?/i);
+  if (x) {
+    if (rechazada(x[9])) return { ok: true, ignorar: true, motivo: 'compra rechazada' };
+    return listo({ tarjeta: x[1], monto: num_(x[3]), comercio: x[2], fecha: x[4] + '-' + x[5] + '-' + x[6] + ' ' + hora_(x[7]), formato: 'bac-prf' });
+  }
+
+  // Correo BAC "Sistema de Alertas": "... con su tarjeta Visa 1234 Detalle de Transacciones Fecha Moneda Monto Comercio Estado
+  //   17/11/26 00:00 Dólar 0.50 COMERCIO Aprobado"
+  x = t.match(/tarjeta \S+ (\d{4}) Detalle de Transacciones .*?Estado (\d{2})\/(\d{2})\/(\d{2,4}) (\d{1,2}:\d{2}) (?:D[oó]lar(?:es)?|USD) ([\d,]+\.\d{2}) (.+?) (Aprobad[oa]|Rechazad[oa]|Denegad[oa])/i);
+  if (x) {
+    if (rechazada(x[8])) return { ok: true, ignorar: true, motivo: 'compra rechazada' };
+    var anio = x[4].length === 2 ? '20' + x[4] : x[4];
+    return listo({ tarjeta: x[1], monto: num_(x[6]), comercio: x[7], fecha: anio + '-' + x[3] + '-' + x[2] + ' ' + hora_(x[5]), formato: 'bac-alertas' });
+  }
   return { ok: false };
 }
 
+// Estado de cuenta en el cuerpo del correo (Cuscatlán):
+// "Tarjeta Nº 428291******1234 Fecha de corte: 08/11/2026 Última fecha de pago: 03/12/2026 Pago mínimo: $96.69 Pago de contado: $225.48"
+function interpretarEstado(texto) {
+  var t = String(texto).replace(/\s+/g, ' ');
+  var tj = t.match(/Tarjeta N[º°o]?\.?\s*([\d*Xx•]{8,})/i);
+  if (tj) tj = [tj[0], tj[1].replace(/\D/g, '').slice(-4)];
+  var corte = t.match(/Fecha de corte:?\s*(\d{2})\/(\d{2})\/(\d{4})/i);
+  var pago = t.match(/(?:[ÚU]ltima )?fecha (?:l[ií]mite )?de pago:?\s*(\d{2})\/(\d{2})\/(\d{4})/i);
+  var minimo = t.match(/Pago m[ií]nimo:?\s*\$?\s*([\d,]+\.\d{2})/i);
+  var contado = t.match(/Pago de contado:?\s*\$?\s*([\d,]+\.\d{2})/i);
+  if (!tj || !corte || !pago) return { ok: false };
+  var f = function (m) { return m[3] + '-' + m[2] + '-' + m[1]; };
+  return { ok: true, tarjeta: tj[1], fecha_corte: f(corte), fecha_pago: f(pago), pago_minimo: minimo ? num_(minimo[1]) : '', pago_contado: contado ? num_(contado[1]) : '' };
+}
+
+function hora_(h) { return h.length === 4 ? '0' + h : h; }
+
 // Quita teléfonos, enlaces y números largos antes de guardar el texto en la bitácora
-function limpiarTexto(texto) {
+function limpiarTexto(texto, max) {
   return String(texto)
     .replace(/https?:\/\/\S+/g, '[enlace]')
+    .replace(/[\w.+-]+@[\w-]+\.[\w.]+/g, '[correo]')
     .replace(/\b\d{8,}\b/g, '[número]')
     .replace(/\b\d{4}[ -]?\d{4}[ -]?\d{4}[ -]?(\d{4})\b/g, '****$1')
-    .slice(0, 500);
+    .replace(/\b\d{4,6}[*Xx•]{4,}(\d{4})\b/g, '****$1')
+    .replace(/\b\d{4}-\d{4}\b/g, '[teléfono]')
+    .slice(0, max || 500);
 }
 
 function num_(s) { return Math.round(Number(String(s).replace(/,/g, '')) * 100) / 100; }

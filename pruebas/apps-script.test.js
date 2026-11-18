@@ -155,3 +155,62 @@ test("instalar solo funciona la primera vez", () => {
   assert.equal(otra.ok, false); assert.equal(P.CLAVE_APP, a, "dejó cambiar la clave");
   assert.equal(post({ accion: "leer", clave: a }).ok, true);
 });
+
+// ---- Correo (Gmail simulado). Textos inventados con el mismo formato que los reales ----
+const CORREO_PRF = "Logo BAC Credomatic Estimado/a: CLIENTE DE PRUEBA Se acaba de realizar una compra con tu tarjeta VISA terminada en 0003 Detalles del movimiento: Comercio Monto TIENDA EN LINEA 00123 1,240.19 Fecha y hora 2030/11/15-17:55:36 Tipo de la compra Estado Internet Aprobada Si no reconoces la transacción...";
+const CORREO_PRF_RECHAZADA = CORREO_PRF.replace("Aprobada", "Rechazada").replace("1,240.19", "50.00");
+const CORREO_ALERTAS = "Sistema de Alertas BAC Credomatic Visa 0003 : Detalle de Criterios Le informa que se ha realizado la siguiente transacción con su tarjeta Visa 0003 Detalle de Transacciones Fecha Moneda Monto Comercio Estado 17/11/30 00:00 Dólar 0.50 PARQUEO DE PRUEBA Aprobado Para consultas...";
+const CORREO_ALERTAS_MISMA = "Sistema de Alertas BAC Credomatic con su tarjeta Visa 0003 Detalle de Transacciones Fecha Moneda Monto Comercio Estado 15/11/30 00:00 Dólar 1,240.19 TIENDA EN LINEA 00123 Aprobado";
+const CORREO_ESTADO = "Estimado(a) Cliente: Adjunto encontrarás el estado de cuenta mensual de tu Tarjeta de Crédito. Tarjeta Nº 400000******0004 Fecha de corte: 08/11/2030 Última fecha de pago: 03/12/2030 Pago mínimo: $96.69 Pago de contado: $225.48";
+const CORREO_TRANSFER = "TRANSACCIÓN EXITOSA Le informamos que ha recibido un abono a su CUENTA DE AHORRO X0000 Monto: USD51.75";
+
+test("interpretar: formatos de correo de BAC y estados de cuenta", () => {
+  const { ctx } = entorno(CLAVES);
+  const a = ctx.interpretar(CORREO_PRF);
+  assert.deepEqual([a.tarjeta, a.monto, a.comercio, a.fecha, a.formato], ["0003", 1240.19, "TIENDA EN LINEA 00123", "2030-11-15 17:55", "bac-prf"]);
+  const b = ctx.interpretar(CORREO_ALERTAS);
+  assert.deepEqual([b.tarjeta, b.monto, b.comercio, b.fecha, b.formato], ["0003", 0.5, "PARQUEO DE PRUEBA", "2030-11-17 00:00", "bac-alertas"]);
+  assert.equal(ctx.interpretar(CORREO_PRF_RECHAZADA).ignorar, true);
+  assert.equal(ctx.interpretar(CORREO_TRANSFER).ok, false);
+  const e = ctx.interpretarEstado(CORREO_ESTADO);
+  assert.deepEqual([e.tarjeta, e.fecha_corte, e.fecha_pago, e.pago_minimo, e.pago_contado], ["0004", "2030-11-08", "2030-12-03", 96.69, 225.48]);
+  assert.equal(ctx.limpiarTexto("Tarjeta Nº 400000******0004"), "Tarjeta Nº ****0004");
+});
+
+function gmailFalso(correos) {
+  const etiquetados = new Set();
+  const msg = (c, i) => ({ getId: () => "m" + i, getPlainBody: () => c, getBody: () => c, getFrom: () => "Alertas <alertas@banco.example>", getSubject: () => "Alerta", getDate: () => new Date() });
+  return {
+    etiquetados,
+    GmailApp: {
+      search: () => [{ getMessages: () => correos.map(msg), addLabel() { etiquetados.add("hilo"); } }],
+      getUserLabelByName: () => null, createLabel: n => ({ n }),
+    },
+  };
+}
+
+test("revisarCorreo: la primera vez no agrega compras viejas; después agrega sin duplicar", () => {
+  const env = entorno(CLAVES);
+  const correos = [CORREO_PRF, CORREO_ESTADO, CORREO_TRANSFER];
+  const g = gmailFalso(correos); env.ctx.GmailApp = g.GmailApp;
+  const r1 = env.ctx.revisarCorreo();
+  assert.equal(r1.inicial, true); assert.equal(r1.compras, 0); assert.equal(r1.anteriores, 1); assert.equal(r1.estados, 1);
+  correos.push(CORREO_ALERTAS, CORREO_ALERTAS_MISMA, CORREO_PRF_RECHAZADA);
+  const r2 = env.ctx.revisarCorreo();
+  assert.equal(r2.inicial, false); assert.equal(r2.revisados, 3, "solo los nuevos");
+  assert.equal(r2.compras, 2, "el parqueo y la compra de la tienda (aún no estaba)");
+  assert.equal(r2.ignorados, 1, "la rechazada");
+  const r3 = env.ctx.revisarCorreo();
+  assert.equal(r3.revisados, 0, "no vuelve a leer lo visto");
+  const pc = env.post({ accion: "leer", clave: CLAVES.CLAVE_APP }).porClasificar;
+  assert.deepEqual(pc.map(x => x.comercio).sort(), ["PARQUEO DE PRUEBA", "TIENDA EN LINEA 00123"]);
+  assert.equal(env.hojas.estados_cuenta.g.length, 2, "encabezado + 1 estado");
+});
+
+test("la misma compra por dos correos distintos entra una sola vez", () => {
+  const env = entorno(CLAVES);
+  env.P.CORREOS_VISTOS = "[]";
+  const g = gmailFalso([CORREO_PRF, CORREO_ALERTAS_MISMA]); env.ctx.GmailApp = g.GmailApp;
+  const r = env.ctx.revisarCorreo();
+  assert.equal(r.compras, 1); assert.equal(r.duplicados, 1);
+});
