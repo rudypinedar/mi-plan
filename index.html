@@ -3,28 +3,45 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="theme-color" content="#0f6b5c">
 <meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Mi plan">
+<meta name="theme-color" content="#F2F1EC" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0D1410" media="(prefers-color-scheme: dark)">
+<meta name="referrer" content="no-referrer">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob:; connect-src https://script.google.com https://script.googleusercontent.com; manifest-src 'self'; worker-src 'self'">
 <title>Mi plan</title>
-<style>
-  :root { --bg: #f6f4ef; --ink: #1d2320; --muted: #5c6661; --jade: #0f6b5c; }
-  @media (prefers-color-scheme: dark) { :root { --bg: #121614; --ink: #eef1ef; --muted: #a3ada8; --jade: #4fc0a6; } }
-  html, body { margin: 0; background: var(--bg); color: var(--ink); font: 17px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
-  main { max-width: 480px; margin: 0 auto; padding: max(48px, env(safe-area-inset-top)) 16px 32px; }
-  h1 { color: var(--jade); margin: 0 0 8px; }
-  p { color: var(--muted); }
-</style>
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="icono.png">
+<link rel="icon" href="icono.png">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:wght@400;700&family=Sora:wght@500;600;700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@20..48,300..600,0..1,0&display=block" rel="stylesheet">
+<link rel="stylesheet" href="css/app.css">
+<script>try{var t=localStorage.getItem("miplan.theme");if(t==="light"||t==="dark")document.documentElement.setAttribute("data-theme",t);if(localStorage.getItem("miplan.discreet")==="1")document.documentElement.classList.add("discreet")}catch(e){}</script>
 </head>
 <body>
-<main>
-  <h1>Mi plan</h1>
-  <p>Estamos armando tu app. Si ves esta página en el iPhone, ya funciona la publicación.</p>
-  <p id="motor"></p>
-</main>
+<div class="shell">
+<div class="wrap">
+  <header class="top"><h1>Mi plan</h1><div class="tools"><div class="save" id="save" role="status"><i></i><span>Cargando…</span></div><button class="eyebtn" data-act="discreet" aria-label="Modo discreto: ocultar montos"><span class="ms" aria-hidden="true">visibility</span></button><button class="themebtn" data-act="theme" aria-label="Cambiar modo de color"></button></div></header>
+  <main id="main"></main>
+</div>
+<nav class="tabs" aria-label="Secciones"><div class="in">
+  <div class="brand side-only"><b>Mi plan</b><span>Control mensual</span></div>
+  <button data-view="mes" aria-label="Mes" aria-current="page"><span class="ms" aria-hidden="true">calendar_month</span><span class="lbl">Mes</span></button>
+  <button data-view="plan" aria-label="Plan"><span class="ms" aria-hidden="true">insights</span><span class="lbl">Plan</span></button>
+  <button class="navplus" data-act="spend" aria-label="Anotar un gasto"><span class="ms" aria-hidden="true">add</span></button>
+  <button data-view="deudas" aria-label="Deudas"><span class="ms" aria-hidden="true">credit_card</span><span class="lbl">Deudas</span></button>
+  <button data-view="fondos" aria-label="Fondos"><span class="ms" aria-hidden="true">savings</span><span class="lbl">Fondos</span></button>
+  <button data-view="ajustes" aria-label="Más"><span class="ms" aria-hidden="true">tune</span><span class="lbl">Más</span></button>
+  <div class="side-only sidefoot"><button class="btn primary wide" data-act="spend"><span class="ms" aria-hidden="true">add</span>Anotar gasto</button><button class="eyebtn" data-act="discreet" aria-label="Modo discreto: ocultar montos"><span class="ms" aria-hidden="true">visibility</span><span>Discreto</span></button><button class="themebtn" data-act="theme" aria-label="Cambiar modo de color"></button><div class="save" role="status"><i></i><span>Cargando…</span></div></div>
+</div></nav>
+</div>
+<dialog id="dlg" aria-label="Editar"></dialog>
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
 <script src="js/motor.js"></script>
-<script>
-  document.getElementById("motor").textContent = window.ENG ? "El motor del plan cargó bien." : "El motor no cargó.";
-</script>
+<script src="js/datos.js"></script>
+<script src="js/app.js"></script>
 </body>
 </html>
