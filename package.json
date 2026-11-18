@@ -1,0 +1,8 @@
+{
+  "name": "mi-plan",
+  "private": true,
+  "description": "App personal de presupuesto y deudas",
+  "scripts": {
+    "test": "node --test pruebas/*.test.js"
+  }
+}

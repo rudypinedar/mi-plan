@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="es-SV">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0f6b5c">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Mi plan">
+<title>Mi plan</title>
+<style>
+  :root { --bg: #f6f4ef; --ink: #1d2320; --muted: #5c6661; --jade: #0f6b5c; }
+  @media (prefers-color-scheme: dark) { :root { --bg: #121614; --ink: #eef1ef; --muted: #a3ada8; --jade: #4fc0a6; } }
+  html, body { margin: 0; background: var(--bg); color: var(--ink); font: 17px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+  main { max-width: 480px; margin: 0 auto; padding: max(48px, env(safe-area-inset-top)) 16px 32px; }
+  h1 { color: var(--jade); margin: 0 0 8px; }
+  p { color: var(--muted); }
+</style>
+</head>
+<body>
+<main>
+  <h1>Mi plan</h1>
+  <p>Estamos armando tu app. Si ves esta página en el iPhone, ya funciona la publicación.</p>
+  <p id="motor"></p>
+</main>
+<script src="js/motor.js"></script>
+<script>
+  document.getElementById("motor").textContent = window.ENG ? "El motor del plan cargó bien." : "El motor no cargó.";
+</script>
+</body>
+</html>

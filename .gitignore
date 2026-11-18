@@ -1,0 +1,17 @@
+# Datos personales: NUNCA se suben al repositorio
+privado/
+*.json.bak
+respaldo*.json
+
+# Claves y configuración local
+.env
+.env.*
+config.local.js
+
+# Mac y editores
+.DS_Store
+.vscode/
+node_modules/
+
+# Contexto personal para Claude Code
+CLAUDE.local.md
