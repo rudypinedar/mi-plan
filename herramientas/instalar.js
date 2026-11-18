@@ -1,7 +1,9 @@
 // Instalación de una sola vez: genera las dos claves, las guarda en
 // privado/claves.json (no se sube), las instala en el Apps Script y luego
 // importa privado/respaldo.json al Sheet.
-// Uso: node herramientas/instalar.js   (lee la URL de privado/conexion.json)
+// Uso: MIPLAN_TOKEN=... node herramientas/instalar.js   (lee la URL de privado/conexion.json)
+// MIPLAN_TOKEN es el valor que Rudy puso a mano en TOKEN_INSTALACION (Propiedades del
+// script). Sin ese token el script no acepta instalar; el token se borra al usarlo.
 const fs = require("fs");
 const path = require("path");
 const crypto = require("crypto");
@@ -21,9 +23,10 @@ const post = cuerpo => fetch(url, { method: "POST", headers: { "Content-Type": "
     claves = { CLAVE_APP: crypto.randomBytes(24).toString("base64url"), CLAVE_INGRESO: crypto.randomBytes(24).toString("base64url") };
     fs.writeFileSync(fClaves, JSON.stringify(claves, null, 2) + "\n", { mode: 0o600 });
   }
-  const r = await post({ accion: "instalar", claveApp: claves.CLAVE_APP, claveIngreso: claves.CLAVE_INGRESO });
-  if (!r.ok && r.error !== "Ya está instalado") throw new Error(r.error);
-  console.log(r.ok ? "Claves instaladas y pestañas creadas." : "Ya estaba instalado.");
+  if (!process.env.MIPLAN_TOKEN) throw new Error("Falta MIPLAN_TOKEN (el valor de TOKEN_INSTALACION en Propiedades del script)");
+  const r = await post({ accion: "instalar", token: process.env.MIPLAN_TOKEN, claveApp: claves.CLAVE_APP, claveIngreso: claves.CLAVE_INGRESO });
+  if (!r.ok) throw new Error(r.error + " (¿ya estaba instalado o el token no coincide?)");
+  console.log("Claves instaladas y pestañas creadas.");
 
   execFileSync(process.execPath, [path.join(__dirname, "importar.js")], {
     stdio: "inherit", env: Object.assign({}, process.env, { MIPLAN_URL: url, MIPLAN_CLAVE: claves.CLAVE_APP }),

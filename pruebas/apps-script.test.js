@@ -47,16 +47,69 @@ function calendarioFalso() {
   return { eventos, Color: { GREEN: "g" }, getCalendarById: () => cal, createCalendar: () => cal };
 }
 
+function utilidadesFalsas() {
+  const crypto = require("crypto");
+  return {
+    getUuid: () => crypto.randomUUID(), formatDate: d => new Date(d).toISOString().slice(0, 10),
+    DigestAlgorithm: { SHA_256: "sha256" }, Charset: { UTF_8: "utf8" },
+    computeDigest: (alg, t) => [...crypto.createHash("sha256").update(String(t)).digest()].map(b => (b > 127 ? b - 256 : b)),
+    base64DecodeWebSafe: s => [...Buffer.from(s, "base64url")],
+    newBlob: (bytes, tipo, nombre) => ({ bytes, tipo, nombre, getDataAsString: () => Buffer.from(bytes).toString("utf8") }),
+  };
+}
+
+function driveFalso() {
+  const archivos = [];
+  return {
+    archivos,
+    Files: {
+      create: (res, blob) => { const f = Object.assign({ id: "f" + archivos.length, webViewLink: "https://drive.google.com/file/d/f" + archivos.length + "/view", trashed: false }, res, { blob }); archivos.push(f); return f; },
+      list: ({ q }) => { const nombre = (q.match(/name = '([^']*)'/) || [])[1], padre = (q.match(/'([^']+)' in parents/) || [])[1];
+        return { files: archivos.filter(f => f.name === nombre && (!padre || (f.parents || []).includes(padre))) }; },
+      get: id => archivos.find(f => f.id === id),
+    },
+  };
+}
+
+// Gmail (API avanzada) simulado. Cada correo: texto, o { texto, asunto, de, auth, pdf }
+function gmailFalso(correos) {
+  const b64 = t => Buffer.from(t, "utf8").toString("base64url");
+  const norm = (c, i) => (typeof c === "string" ? { texto: c } : c);
+  return {
+    correos,
+    Users: {
+      getProfile: () => ({ emailAddress: "yo@example.com" }),
+      Messages: {
+        list: () => ({ messages: correos.map((c, i) => ({ id: "m" + i })).reverse() }),
+        get: (u, id) => {
+          const c = norm(correos[Number(id.slice(1))]);
+          const de = c.de || "Alertas <alertas@banco.example>";
+          const partes = [{ mimeType: "text/plain", body: { data: b64(c.texto) } }];
+          if (c.pdf) partes.push({ filename: "estado.pdf", mimeType: "application/pdf", body: { attachmentId: "a1" } });
+          return { id, internalDate: String(Date.now()), payload: { mimeType: "multipart/mixed", headers: [
+            { name: "From", value: de }, { name: "Subject", value: c.asunto || "Aviso" },
+            { name: "Authentication-Results", value: c.auth || "mx.google.com; dkim=pass header.i=@banco.example; spf=pass smtp.mailfrom=banco.example; dmarc=pass" },
+          ], parts: partes } };
+        },
+        Attachments: { get: () => ({ data: b64("%PDF-1.4 prueba") }) },
+      },
+    },
+  };
+}
+
 function entorno(props = {}) {
   const hojas = {};
   const P = Object.assign({}, props);
   const ctx = {
     SpreadsheetApp: { getActiveSpreadsheet: () => ({ getSheetByName: n => hojas[n] || null, insertSheet: n => (hojas[n] = hojaFalsa(n)) }) },
-    PropertiesService: { getScriptProperties: () => ({ getProperty: k => (k in P ? P[k] : null), setProperty: (k, v) => { P[k] = String(v); }, setProperties: o => Object.assign(P, o) }) },
+    PropertiesService: { getScriptProperties: () => ({ getProperty: k => (k in P ? P[k] : null), setProperty: (k, v) => { P[k] = String(v); }, setProperties: o => Object.assign(P, o), deleteProperty: k => { delete P[k]; } }) },
     LockService: { getScriptLock: () => ({ tryLock: () => true, releaseLock() {} }) },
     ContentService: { MimeType: { JSON: "json" }, createTextOutput: t => ({ setMimeType: () => ({ texto: t }) }) },
-    Utilities: { getUuid: () => require("crypto").randomUUID(), formatDate: (d, tz, f) => new Date(d).toISOString().slice(0, 10) },
+    Utilities: utilidadesFalsas(),
+    CacheService: (() => { const c = {}; const cache = { get: k => c[k] || null, put: (k, v) => { c[k] = v; } }; return { getScriptCache: () => cache }; })(),
     CalendarApp: calendarioFalso(),
+    Drive: driveFalso(),
+    Gmail: gmailFalso([]),
     Logger: { log() {} },
   };
   vm.createContext(ctx); vm.runInContext(CODIGO, ctx);
@@ -109,22 +162,26 @@ test("un saldo corregido a mano en el Sheet manda al leer", () => {
   assert.equal(post({ accion: "leer", clave: CLAVES.CLAVE_APP }).plan.debts[0].balance, 123.45);
 });
 
-test("claves: la de ingreso solo puede ingresar; se bloquea tras 5 fallos", () => {
-  const { post, P } = entorno(CLAVES);
-  assert.equal(post({ accion: "leer", clave: CLAVES.CLAVE_INGRESO }).ok, false);
+test("claves: la buena siempre entra (sin bloqueo); la de ingreso solo ingresa; los fallos se anotan sin llenar la bitácora", () => {
+  const { post, hojas } = entorno(CLAVES);
+  assert.equal(post({ accion: "leer", clave: CLAVES.CLAVE_INGRESO }).error, "Clave incorrecta", "no debe revelar que la clave de ingreso existe");
   assert.equal(post({ accion: "ingresar", clave: CLAVES.CLAVE_INGRESO, texto: SMS1 }).ok, true);
-  for (let i = 0; i < 4; i++) assert.equal(post({ accion: "leer", clave: "mala" }).bloqueado, undefined);
-  post({ accion: "leer", clave: "mala" });
-  const r = post({ accion: "leer", clave: CLAVES.CLAVE_APP });
-  assert.equal(r.ok, false); assert.equal(r.bloqueado, true, "con la clave buena también debe esperar");
-  P.BLOQUEO_HASTA = "0";
-  assert.equal(post({ accion: "leer", clave: CLAVES.CLAVE_APP }).ok, true);
+  for (let i = 0; i < 50; i++) assert.equal(post({ accion: "leer", clave: "mala" + i }).ok, false);
+  assert.equal(post({ accion: "leer", clave: CLAVES.CLAVE_APP }).ok, true, "un atacante no puede dejar fuera al dueño");
+  assert.equal(post({ accion: "ingresar", clave: CLAVES.CLAVE_INGRESO, texto: SMS2 }).ok, true, "Atajos sigue funcionando");
+  const avisos = hojas.bitacora.g.filter(f => f[2] === "clave incorrecta").length;
+  assert.equal(avisos, 1, "una sola fila por ventana de tiempo");
 });
 
-test("sin CLAVE_APP configurada no deja entrar a nadie", () => {
+test("sin CLAVE_APP configurada no deja entrar a nadie ni lo delata", () => {
   const { post } = entorno({});
-  assert.equal(post({ accion: "leer", clave: "" }).ok, false);
-  assert.equal(post({ accion: "leer", clave: "cualquiera" }).ok, false);
+  assert.equal(post({ accion: "leer", clave: "" }).error, "Clave incorrecta");
+  assert.equal(post({ accion: "leer", clave: "cualquiera" }).error, "Clave incorrecta");
+});
+
+test("doGet no dice nada de la app", () => {
+  const { ctx } = entorno(CLAVES);
+  assert.deepEqual(JSON.parse(ctx.doGet().texto), { ok: true });
 });
 
 test("ingresar interpreta las alertas, no duplica y limpia la bitácora", () => {
@@ -143,6 +200,15 @@ test("ingresar interpreta las alertas, no duplica y limpia la bitácora", () => 
   const bit = hojas.bitacora.g.map(f => f.join(" ")).join("\n");
   assert.ok(!bit.includes("22223333"), "el número del banco quedó en la bitácora");
   assert.ok(!bit.includes("bit.ly"), "el enlace quedó en la bitácora");
+  assert.ok(!bit.includes("Mensaje raro"), "el texto no interpretado no se guarda");
+  assert.ok(!hojas.por_clasificar.g.flat().some(x => /Mensaje raro/.test(x)), "ni en la huella");
+});
+
+test("un código reenviado por error no queda guardado", () => {
+  const { post, hojas } = entorno(CLAVES);
+  post({ accion: "ingresar", clave: CLAVES.CLAVE_INGRESO, texto: "Tu código de verificación es 482913. No lo compartas." });
+  const todo = Object.values(hojas).map(h => h.g.flat().join(" ")).join(" ");
+  assert.ok(!todo.includes("482913"));
 });
 
 test("al guardar se pueden marcar los movimientos ya clasificados", () => {
@@ -153,15 +219,59 @@ test("al guardar se pueden marcar los movimientos ya clasificados", () => {
   assert.equal(post({ accion: "leer", clave: CLAVES.CLAVE_APP }).porClasificar.length, 0);
 });
 
-test("instalar solo funciona la primera vez", () => {
-  const { post, P, hojas } = entorno({});
-  assert.equal(post({ accion: "instalar", claveApp: "corta", claveIngreso: "x".repeat(30) }).ok, false);
+test("instalar exige el token puesto a mano y solo funciona una vez", () => {
   const a = "a".repeat(32), b = "b".repeat(32);
-  assert.equal(post({ accion: "instalar", claveApp: a, claveIngreso: b }).ok, true);
-  assert.equal(P.CLAVE_APP, a); assert.ok(hojas.config && hojas.deudas, "no creó las pestañas");
-  const otra = post({ accion: "instalar", claveApp: "c".repeat(32), claveIngreso: "d".repeat(32) });
-  assert.equal(otra.ok, false); assert.equal(P.CLAVE_APP, a, "dejó cambiar la clave");
-  assert.equal(post({ accion: "leer", clave: a }).ok, true);
+  const sinToken = entorno({});
+  assert.equal(sinToken.post({ accion: "instalar", claveApp: a, claveIngreso: b }).ok, false, "sin token nadie instala");
+  assert.equal(sinToken.P.CLAVE_APP, undefined);
+  const { post, P, hojas } = entorno({ TOKEN_INSTALACION: "token-de-prueba-123" });
+  assert.equal(post({ accion: "instalar", token: "otro", claveApp: a, claveIngreso: b }).ok, false);
+  assert.equal(post({ accion: "instalar", token: "token-de-prueba-123", claveApp: "corta", claveIngreso: b }).ok, false);
+  assert.equal(post({ accion: "instalar", token: "token-de-prueba-123", claveApp: a, claveIngreso: b }).ok, true);
+  assert.equal(P.CLAVE_APP, a); assert.equal(P.TOKEN_INSTALACION, undefined, "el token se borra");
+  assert.ok(hojas.config && hojas.deudas, "no creó las pestañas");
+  assert.equal(post({ accion: "instalar", token: "token-de-prueba-123", claveApp: "c".repeat(32), claveIngreso: "d".repeat(32) }).ok, false);
+  assert.equal(P.CLAVE_APP, a, "dejó cambiar la clave");
+});
+
+test("guardar rechaza planes mal formados y claves reservadas", () => {
+  const { post, hojas } = entorno(CLAVES);
+  const s = iniciar(require("./plan-ejemplo.js")());
+  for (const malo of [null, [], { months: [] }, Object.assign({}, s, { debts: "x" }), Object.assign({}, s, { months: { "x": { items: [] } } })])
+    assert.equal(post({ accion: "guardar", clave: CLAVES.CLAVE_APP, version: 0, plan: malo }).ok, false);
+  assert.equal(post({ accion: "guardar", clave: CLAVES.CLAVE_APP, version: 0, plan: s, clasificados: "x" }).ok, false);
+  const raro = Object.assign(JSON.parse(JSON.stringify(s)), { _version: 999, constructor: "x" });
+  raro["__proto__x"] = 1;
+  assert.equal(post({ accion: "guardar", clave: CLAVES.CLAVE_APP, version: 0, plan: raro }).ok, true);
+  const claves = hojas.config.g.slice(1).map(f => f[0]);
+  assert.equal(claves.filter(k => k === "_version").length, 1, "_version del cliente no entra");
+  assert.ok(!claves.includes("constructor"));
+  assert.equal(post({ accion: "guardar", clave: CLAVES.CLAVE_APP, version: 1, plan: s }).version, 2, "el control de versiones sigue bien");
+});
+
+test("las celdas nunca quedan como fórmula y vuelven intactas", () => {
+  const { post, hojas } = entorno(CLAVES);
+  const s = iniciar(require("./plan-ejemplo.js")());
+  s.debts[0].name = '=IMPORTXML("https://ejemplo.com","//a")'; s.recurring[0].name = "+SUMA(1)"; s.funds[0].name = "@algo";
+  post({ accion: "guardar", clave: CLAVES.CLAVE_APP, version: 0, plan: s });
+  const celdas = Object.values(hojas).flatMap(h => h.g.flat());
+  assert.ok(!celdas.some(c => /^[=+@]/.test(c)), "alguna celda empieza como fórmula");
+  const l = post({ accion: "leer", clave: CLAVES.CLAVE_APP }).plan;
+  assert.equal(l.debts[0].name, s.debts[0].name); assert.equal(l.recurring[0].name, "+SUMA(1)");
+  post({ accion: "ingresar", clave: CLAVES.CLAVE_APP, texto: SMS1.replace("TIENDA DE PRUEBA", "=HYPERLINK(1)") });
+  assert.equal(post({ accion: "leer", clave: CLAVES.CLAVE_APP }).porClasificar[0].comercio, "=HYPERLINK(1)");
+  assert.ok(!hojas.por_clasificar.g.flat().some(c => /^=/.test(c)));
+});
+
+test("guardar escribe antes de borrar: menos filas o columnas no dejan restos", () => {
+  const { post, hojas } = entorno(CLAVES);
+  const s = iniciar(require("./plan-ejemplo.js")());
+  const sobre = s.months[s.current].items.find(i => i.envelope);
+  for (let i = 0; i < 1500; i++) ENG.anotarGasto(s, sobre, 0.01, "gasto largo " + i);
+  post({ accion: "guardar", clave: CLAVES.CLAVE_APP, version: 0, plan: s });
+  const chico = iniciar(require("./plan-ejemplo.js")()); chico.debts = chico.debts.slice(0, 2);
+  post({ accion: "guardar", clave: CLAVES.CLAVE_APP, version: 1, plan: chico });
+  assert.deepEqual(post({ accion: "leer", clave: CLAVES.CLAVE_APP }).plan, JSON.parse(JSON.stringify(chico)));
 });
 
 // ---- Correo (Gmail simulado). Textos inventados con el mismo formato que los reales ----
@@ -185,22 +295,10 @@ test("interpretar: formatos de correo de BAC y estados de cuenta", () => {
   assert.equal(ctx.limpiarTexto("Tarjeta Nº 400000******0004"), "Tarjeta Nº ****0004");
 });
 
-function gmailFalso(correos) {
-  const etiquetados = new Set();
-  const msg = (c, i) => ({ getId: () => "m" + i, getPlainBody: () => c, getBody: () => c, getFrom: () => "Alertas <alertas@banco.example>", getSubject: () => "Alerta", getDate: () => new Date(), getAttachments: () => [] });
-  return {
-    etiquetados,
-    GmailApp: {
-      search: () => [{ getMessages: () => correos.map(msg), addLabel() { etiquetados.add("hilo"); } }],
-      getUserLabelByName: () => null, createLabel: n => ({ n }),
-    },
-  };
-}
-
 test("revisarCorreo: la primera vez no agrega compras viejas; después agrega sin duplicar", () => {
   const env = entorno(CLAVES);
   const correos = [CORREO_PRF, CORREO_ESTADO, CORREO_TRANSFER];
-  const g = gmailFalso(correos); env.ctx.GmailApp = g.GmailApp;
+  env.ctx.Gmail = gmailFalso(correos);
   const r1 = env.ctx.revisarCorreo();
   assert.equal(r1.inicial, true); assert.equal(r1.compras, 0); assert.equal(r1.anteriores, 1); assert.equal(r1.estados, 1);
   correos.push(CORREO_ALERTAS, CORREO_ALERTAS_MISMA, CORREO_PRF_RECHAZADA);
@@ -218,7 +316,7 @@ test("revisarCorreo: la primera vez no agrega compras viejas; después agrega si
 test("la misma compra por dos correos distintos entra una sola vez", () => {
   const env = entorno(CLAVES);
   env.P.CORREOS_VISTOS = "[]";
-  const g = gmailFalso([CORREO_PRF, CORREO_ALERTAS_MISMA]); env.ctx.GmailApp = g.GmailApp;
+  env.ctx.Gmail = gmailFalso([CORREO_PRF, CORREO_ALERTAS_MISMA]);
   const r = env.ctx.revisarCorreo();
   assert.equal(r.compras, 1); assert.equal(r.duplicados, 1);
 });
@@ -270,7 +368,7 @@ test("guardar deja el calendario pendiente y la revisión de correo lo actualiza
   env.post({ accion: "guardar", clave: CLAVES.CLAVE_APP, version: 0, plan: s });
   assert.equal(env.P.CALENDARIO_PENDIENTE, "1");
   env.P.CORREOS_VISTOS = "[]";
-  env.ctx.GmailApp = gmailFalso([]).GmailApp;
+  env.ctx.Gmail = gmailFalso([]);
   const r = env.ctx.revisarCorreo();
   assert.ok(r.calendario && r.calendario.ok, "no actualizó el calendario");
   assert.equal(env.P.CALENDARIO_PENDIENTE, "0");
@@ -288,4 +386,25 @@ test("interpretar: Credisiman y Cuscatlán por correo", () => {
   const e = ctx.interpretarEstado("Estado de cuenta de tarjeta Credisiman de noviembre corte 2030-11-13 · el estado de cuenta de su tarjeta CREDISIMAN número XXXXXXXXXXXX0005 Correspondiente al mes noviembre con fecha de corte 2030-11-13 Le recordamos...");
   assert.deepEqual([e.ok, e.tarjeta, e.fecha_corte, e.fecha_pago], [true, "0005", "2030-11-13", ""]);
   assert.equal(ctx.limpiarTexto("número XXXXXXXXXXXX0005"), "número ****0005");
+});
+
+test("correo: remitente que no pasa la verificación no entra", () => {
+  const env = entorno(CLAVES); env.P.CORREOS_VISTOS = "[]";
+  env.ctx.Gmail = gmailFalso([{ texto: CORREO_PRF, de: "BAC <alertas@baccredomatic.com>", auth: "mx.google.com; spf=fail smtp.mailfrom=otro.example; dmarc=fail" }]);
+  const r = env.ctx.revisarCorreo();
+  assert.equal(r.sinVerificar, 1); assert.equal(r.compras, 0);
+  env.ctx.Gmail.correos.push({ texto: CORREO_ALERTAS, de: "BAC <alertas@baccredomatic.com>", auth: "mx.google.com; dkim=pass header.i=@baccredomatic.com; spf=pass smtp.mailfrom=baccredomatic.com; dmarc=pass" });
+  assert.equal(env.ctx.revisarCorreo().compras, 1);
+});
+
+test("estado de cuenta con PDF: se guarda en Drive una sola vez", () => {
+  const env = entorno(CLAVES); env.P.CORREOS_VISTOS = "[]";
+  env.ctx.Gmail = gmailFalso([{ texto: CORREO_ESTADO, asunto: "Estado de Cuenta Digital", pdf: true }]);
+  assert.equal(env.ctx.revisarCorreo().estados, 1);
+  const pdfs = env.ctx.Drive.archivos.filter(f => f.mimeType === "application/pdf");
+  assert.equal(pdfs.length, 1); assert.equal(pdfs[0].name, "2030-11-08 ····0004.pdf");
+  const est = env.post({ accion: "leer", clave: CLAVES.CLAVE_APP }).estadosCuenta;
+  assert.match(est[0].archivo, /^https:\/\/drive\.google\.com\//);
+  env.ctx.estadosAnteriores(90);
+  assert.equal(env.ctx.Drive.archivos.filter(f => f.mimeType === "application/pdf").length, 1, "no duplica el PDF");
 });

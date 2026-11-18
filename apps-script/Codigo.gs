@@ -15,14 +15,15 @@
  *   { accion: "activarCorreo", clave }   revisa Gmail cada 15 minutos
  *   { accion: "calendario", clave }      actualiza el calendario "Mi plan · pagos"
  *   { accion: "estadosAnteriores", clave, dias }   guarda los estados de cuenta viejos y sus PDF
- *   { accion: "instalar", claveApp, claveIngreso }   (solo la primera vez)
+ *   { accion: "instalar", token, claveApp, claveIngreso }
+ *       solo funciona si Rudy puso a mano TOKEN_INSTALACION en Propiedades del
+ *       script y todavía no hay claves; el token se borra al usarlo.
  * y la respuesta siempre es JSON: { ok: true, ... } o { ok: false, error }.
  *
  * Ver docs/SHEET.md para la estructura de cada pestaña.
  */
 
-var MAX_INTENTOS = 5;          // claves equivocadas antes de bloquear
-var MINUTOS_BLOQUEO = 15;
+var MAX_PETICION = 8000000;    // caracteres: un plan normal pesa mucho menos
 var TAM_CELDA = 45000;         // Sheets acepta 50,000 caracteres por celda
 
 var PESTANAS = {
@@ -45,13 +46,15 @@ var LISTAS = { debts: 'deudas', funds: 'fondos', recurring: 'recurrentes', oneof
 // ---------------------------------------------------------------- entrada
 
 function doGet() {
-  return json_({ ok: true, app: 'Mi plan', mensaje: 'Usa POST' });
+  return json_({ ok: true });
 }
 
 function doPost(e) {
+  var cuerpo = (e && e.postData && e.postData.contents) || '{}';
+  if (cuerpo.length > MAX_PETICION) return json_({ ok: false, error: 'La petición es demasiado grande' });
   var p;
-  try { p = JSON.parse((e && e.postData && e.postData.contents) || '{}'); }
-  catch (err) { return json_({ ok: false, error: 'La petición no es un JSON válido' }); }
+  try { p = JSON.parse(cuerpo); } catch (err) { return json_({ ok: false, error: 'La petición no es un JSON válido' }); }
+  if (!p || typeof p !== 'object' || Array.isArray(p)) return json_({ ok: false, error: 'La petición no es válida' });
 
   if (p.accion === 'instalar') return json_(conCandado_(function () { return instalar_(p); }));
 
@@ -76,14 +79,16 @@ function doPost(e) {
 
 // ---------------------------------------------------------------- instalación remota
 
-// Solo funciona UNA vez: mientras no exista CLAVE_APP. Guarda las dos claves
-// que manda la computadora de Rudy y crea las pestañas. Después queda inútil.
+// Solo funciona si Rudy puso a mano TOKEN_INSTALACION en Propiedades del script
+// y todavía no hay claves. El token se borra al usarlo (sirve una sola vez).
 function instalar_(p) {
   var props = PropertiesService.getScriptProperties();
-  if (props.getProperty('CLAVE_APP')) return { ok: false, error: 'Ya está instalado' };
+  var token = props.getProperty('TOKEN_INSTALACION');
+  if (!token || props.getProperty('CLAVE_APP') || !iguales_(p.token, token)) return { ok: false, error: 'Clave incorrecta' };
   var app = String(p.claveApp || ''), ing = String(p.claveIngreso || '');
   if (app.length < 24 || ing.length < 24 || app === ing) return { ok: false, error: 'Las claves deben ser distintas y de al menos 24 caracteres' };
-  props.setProperties({ CLAVE_APP: app, CLAVE_INGRESO: ing, INTENTOS: '0', BLOQUEO_HASTA: '0' });
+  props.setProperties({ CLAVE_APP: app, CLAVE_INGRESO: ing });
+  props.deleteProperty('TOKEN_INSTALACION');
   configurar();
   anotar_('instalacion', 'instalar', 'Claves guardadas y pestañas creadas');
   return { ok: true };
@@ -91,32 +96,20 @@ function instalar_(p) {
 
 // ---------------------------------------------------------------- acceso
 
+// Una clave correcta SIEMPRE entra: no hay bloqueo por intentos (con claves
+// aleatorias de 32 caracteres no aporta nada y permitiría dejar fuera a Rudy).
+// Las incorrectas solo se anotan en la bitácora, máximo una fila cada 10 minutos.
 function revisarClave_(clave, accion) {
   var props = PropertiesService.getScriptProperties();
-  var bloqueo = Number(props.getProperty('BLOQUEO_HASTA') || 0);
-  if (Date.now() < bloqueo) {
-    return { ok: false, error: 'Demasiados intentos. Prueba otra vez en unos minutos.', bloqueado: true };
-  }
-  var app = props.getProperty('CLAVE_APP');
-  var ing = props.getProperty('CLAVE_INGRESO');
-  if (!app) return { ok: false, error: 'Falta configurar CLAVE_APP en Propiedades del script' };
-
-  var esApp = iguales_(clave, app);
+  var app = props.getProperty('CLAVE_APP'), ing = props.getProperty('CLAVE_INGRESO');
+  var esApp = !!app && iguales_(clave, app);
   var esIngreso = !!ing && iguales_(clave, ing);
-  var permitido = esApp || (esIngreso && accion === 'ingresar');
-
-  if (!permitido) {
-    var n = Number(props.getProperty('INTENTOS') || 0) + 1;
-    if (n >= MAX_INTENTOS) {
-      props.setProperties({ INTENTOS: '0', BLOQUEO_HASTA: String(Date.now() + MINUTOS_BLOQUEO * 60000) });
-      anotar_('seguridad', 'bloqueo', 'Se bloqueó el acceso por ' + MINUTOS_BLOQUEO + ' minutos');
-    } else {
-      props.setProperty('INTENTOS', String(n));
-    }
-    return { ok: false, error: esIngreso ? 'Esa clave solo sirve para ingresar movimientos' : 'Clave incorrecta' };
-  }
-  if (props.getProperty('INTENTOS') && props.getProperty('INTENTOS') !== '0') props.setProperty('INTENTOS', '0');
-  return { ok: true };
+  if (esApp || (esIngreso && accion === 'ingresar')) return { ok: true };
+  try {
+    var cache = CacheService.getScriptCache();
+    if (!cache.get('FALLO_ANOTADO')) { cache.put('FALLO_ANOTADO', '1', 600); anotar_('seguridad', 'clave incorrecta', 'Petición rechazada (acción: ' + String(accion || '').slice(0, 20).replace(/[^\w]/g, '') + ')'); }
+  } catch (_) {}
+  return { ok: false, error: 'Clave incorrecta' };
 }
 
 // Compara sin cortar en la primera diferencia
@@ -148,8 +141,23 @@ function leer_() {
 
 // ---------------------------------------------------------------- guardar
 
+var ESTADOS_CLASIFICADO = { asignado: true, descartado: true };
+
+// Revisa que el plan tenga la forma esperada antes de tocar el Sheet
+function planValido_(plan) {
+  if (!plan || typeof plan !== 'object' || Array.isArray(plan)) return 'Falta el plan';
+  if (!plan.months || typeof plan.months !== 'object' || Array.isArray(plan.months)) return 'El plan no tiene meses';
+  var listas = ['debts', 'funds', 'recurring', 'oneoffs'];
+  for (var i = 0; i < listas.length; i++) if (!Array.isArray(plan[listas[i]])) return 'El plan no es válido (' + listas[i] + ')';
+  if (plan.fechas != null && !Array.isArray(plan.fechas)) return 'El plan no es válido (fechas)';
+  for (var k in plan.months) if (!/^\d{4}-\d{2}$/.test(k) || !plan.months[k] || !Array.isArray(plan.months[k].items)) return 'El plan no es válido (mes ' + String(k).slice(0, 10) + ')';
+  return '';
+}
+
 function guardar_(p) {
-  if (!p.plan || typeof p.plan !== 'object' || !p.plan.months) return { ok: false, error: 'Falta el plan' };
+  var malo = planValido_(p.plan);
+  if (malo) return { ok: false, error: malo };
+  if (p.clasificados != null && !Array.isArray(p.clasificados)) return { ok: false, error: 'clasificados no es una lista' };
   var cfg = leerTabla_('config');
   var actual = Number(valorConfig_(cfg, '_version') || 0);
   if (!p.forzar && Number(p.version || 0) !== actual) {
@@ -173,11 +181,15 @@ function marcarClasificados_(lista) {
   var datos = hoja.getDataRange().getValues();
   var col = PESTANAS.por_clasificar;
   var iId = col.indexOf('id'), iEst = col.indexOf('estado'), iA = col.indexOf('asignado_a');
-  var porId = {}; lista.forEach(function (x) { porId[x.id] = x; });
+  var porId = {};
+  lista.slice(0, 500).forEach(function (x) {
+    if (!x || typeof x.id !== 'string' || !ESTADOS_CLASIFICADO[x.estado]) return;
+    porId[x.id] = { estado: x.estado, asignado_a: String(x.asignado_a || '').slice(0, 80) };
+  });
   for (var r = 1; r < datos.length; r++) {
-    var x = porId[datos[r][iId]]; if (!x) continue;
-    hoja.getRange(r + 1, iEst + 1).setValue(x.estado || 'asignado');
-    hoja.getRange(r + 1, iA + 1).setValue(x.asignado_a || '');
+    var x = Object.prototype.hasOwnProperty.call(porId, datos[r][iId]) ? porId[datos[r][iId]] : null; if (!x) continue;
+    hoja.getRange(r + 1, iEst + 1).setNumberFormat('@').setValue(celda_(x.estado));
+    hoja.getRange(r + 1, iA + 1).setNumberFormat('@').setValue(celda_(x.asignado_a));
   }
 }
 
@@ -196,7 +208,8 @@ function ingresar_(p) {
 function agregarMovimiento_(texto, origen) {
   var m = interpretar(texto);
   if (m.ok && m.ignorar) { anotar_(origen, 'ignorado', m.motivo + ' · ' + limpiarTexto(texto)); return { ok: true, ignorado: m.motivo }; }
-  var huella = m.ok ? [m.tarjeta, m.monto, m.fecha, m.formato].join('|') : 'txt|' + limpiarTexto(texto).trim().slice(0, 200);
+  // Lo no interpretado (por ejemplo un código reenviado por error) no se guarda: solo una huella cifrada
+  var huella = m.ok ? [m.tarjeta, m.monto, m.fecha, m.formato].join('|') : 'txt|' + resumen_(texto.replace(/\s+/g, ' ').trim());
   var dia = m.ok ? String(m.fecha).slice(0, 10) : '';
   var dup = leerTabla_('por_clasificar').some(function (f) {
     if (f.huella === huella) return true;
@@ -212,21 +225,22 @@ function agregarMovimiento_(texto, origen) {
     estado: 'pendiente', asignado_a: '', nota: m.ok ? '' : 'sin interpretar', huella: huella
   };
   agregarFila_('por_clasificar', fila);
-  anotar_(origen, 'ingresar', limpiarTexto(texto));
+  anotar_(origen, 'ingresar', m.ok ? limpiarTexto(texto) : 'Aviso sin interpretar (texto no guardado)');
   return { ok: true, id: fila.id, interpretado: m.ok };
 }
 
 // ---------------------------------------------------------------- correo (Gmail)
+// Se usa la API de Gmail con permiso de SOLO LECTURA: el script no puede enviar,
+// borrar ni modificar correos. Para no repetir, recuerda los ids ya vistos.
 
 // Solo se leen correos de estos remitentes. Se puede cambiar sin tocar el
 // código con la propiedad BUSQUEDA_CORREO en Propiedades del script.
 var BUSQUEDA_CORREO = 'from:(baccredomatic.com OR baccredomatic.sv OR bancocuscatlan.com OR sistemafedecredito.com OR simaninternet.net) newer_than:3d';
-var ETIQUETA_CORREO = 'MiPlan/procesado';
 var MAX_VISTOS = 300;
 
 // Busca avisos de compra y estados de cuenta en Gmail. Las compras van a
 // por_clasificar; los estados de cuenta, a estados_cuenta. Lo demás (transferencias,
-// promociones, códigos) se ignora. No borra ni marca como leído ningún correo.
+// promociones, códigos) se ignora.
 function revisarCorreo() {
   var lock = LockService.getScriptLock();
   if (!lock.tryLock(30000)) return { ok: false, error: 'Ocupado' };
@@ -238,24 +252,21 @@ function revisarCorreo() {
     var inicial = props.getProperty('CORREOS_VISTOS') == null;
     var vistos = JSON.parse(props.getProperty('CORREOS_VISTOS') || '[]');
     var yaVisto = {}; vistos.forEach(function (id) { yaVisto[id] = true; });
-    var etiqueta = GmailApp.getUserLabelByName(ETIQUETA_CORREO) || GmailApp.createLabel(ETIQUETA_CORREO);
-    var r = { ok: true, inicial: inicial, revisados: 0, compras: 0, duplicados: 0, estados: 0, ignorados: 0, anteriores: 0 };
-    GmailApp.search(q, 0, 50).forEach(function (hilo) {
-      var tocado = false;
-      hilo.getMessages().forEach(function (m) {
-        var id = m.getId(); if (yaVisto[id]) return;
-        yaVisto[id] = true; vistos.push(id); r.revisados++;
-        var texto = m.getSubject() + ' · ' + textoDe_(m); // Credisiman pone la fecha en el asunto
-        if (interpretar(texto).ok) {
-          if (inicial) { r.anteriores++; return; }
-          var x = agregarMovimiento_(texto, 'correo'); tocado = true;
-          if (x.duplicado) r.duplicados++; else if (x.ignorado) r.ignorados++; else r.compras++;
-          return;
-        }
-        if (procesarEstado_(m, texto)) { r.estados++; tocado = true; return; }
-        r.ignorados++;
-      });
-      if (tocado) hilo.addLabel(etiqueta);
+    var r = { ok: true, inicial: inicial, revisados: 0, compras: 0, duplicados: 0, estados: 0, ignorados: 0, anteriores: 0, sinVerificar: 0 };
+    var lista = Gmail.Users.Messages.list('me', { q: q, maxResults: 50 }).messages || [];
+    lista.reverse().forEach(function (ref) {
+      if (yaVisto[ref.id]) return;
+      yaVisto[ref.id] = true; vistos.push(ref.id); r.revisados++;
+      var c = correo_(ref.id);
+      if (!c.verificado) { r.sinVerificar++; anotar_('correo', 'sin verificar', 'Remitente que no pasa la verificación del banco: ' + c.dominio); return; }
+      if (interpretar(c.texto).ok) {
+        if (inicial) { r.anteriores++; return; }
+        var x = agregarMovimiento_(c.texto, 'correo');
+        if (x.duplicado) r.duplicados++; else if (x.ignorado) r.ignorados++; else r.compras++;
+        return;
+      }
+      if (procesarEstado_(c)) { r.estados++; return; }
+      r.ignorados++;
     });
     props.setProperty('CORREOS_VISTOS', JSON.stringify(vistos.slice(-MAX_VISTOS)));
     props.setProperty('CORREO_ULTIMA', new Date().toISOString());
@@ -270,56 +281,105 @@ function revisarCorreo() {
   } finally { lock.releaseLock(); }
 }
 
+// Lee un correo con la API de Gmail: asunto + texto plano, remitente, adjuntos
+// y si pasó la verificación de remitente (DMARC, o SPF/DKIM del mismo dominio).
+function correo_(id) {
+  var m = Gmail.Users.Messages.get('me', id, { format: 'full' });
+  var h = {}; ((m.payload && m.payload.headers) || []).forEach(function (x) { h[String(x.name).toLowerCase()] = String(x.value); });
+  var de = h['from'] || '', dominio = (de.match(/@([\w.-]+)/) || [])[1] || '';
+  var auth = (h['authentication-results'] || '').toLowerCase();
+  var base = dominio.split('.').slice(-2).join('.').toLowerCase();
+  var verificado = /dmarc=pass/.test(auth) || (base && (new RegExp('dkim=pass[^;]*header\\.(i|d)=@?[\\w.-]*' + base.replace(/\./g, '\\.')).test(auth) || new RegExp('spf=pass[^;]*' + base.replace(/\./g, '\\.')).test(auth)));
+  if (/dmarc=fail/.test(auth)) verificado = false;
+  var planos = [], html = [], adjuntos = [];
+  (function recorrer(parte) {
+    if (!parte) return;
+    if (parte.filename && parte.body && parte.body.attachmentId) adjuntos.push({ nombre: parte.filename, tipo: parte.mimeType, id: parte.body.attachmentId });
+    else if (parte.body && parte.body.data) (parte.mimeType === 'text/html' ? html : planos).push(decodificar_(parte.body.data));
+    (parte.parts || []).forEach(recorrer);
+  })(m.payload);
+  var cuerpo = planos.join(' ');
+  if (cuerpo.length < 20) cuerpo = html.join(' ').replace(/<style[\s\S]*?<\/style>/gi, ' ').replace(/<[^>]+>/g, ' ').replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&');
+  return { id: id, de: de, dominio: dominio, asunto: h['subject'] || '', fecha: new Date(Number(m.internalDate) || Date.now()), verificado: !!verificado,
+    adjuntos: adjuntos, texto: (h['subject'] || '') + ' · ' + cuerpo.replace(/\s+/g, ' ').trim() }; // Credisiman pone la fecha en el asunto
+}
+
+function decodificar_(datos) {
+  return Utilities.newBlob(Utilities.base64DecodeWebSafe(datos)).getDataAsString('UTF-8');
+}
+
 // Estado de cuenta: guarda sus datos (si vienen en el cuerpo) y el PDF en Drive.
 // Devuelve true si el correo era un estado de cuenta.
-function procesarEstado_(m, texto) {
-  var e = interpretarEstado(texto);
-  var esEstado = e.ok || /estado de cuenta/i.test(m.getSubject() + ' ' + texto.slice(0, 400));
+function procesarEstado_(c) {
+  var e = interpretarEstado(c.texto);
+  var esEstado = e.ok || /estado de cuenta/i.test(c.texto.slice(0, 500));
   if (!esEstado) return false;
-  var de = m.getFrom();
-  var banco = /cuscatlan/i.test(de) ? 'Cuscatlán' : /fedecredito/i.test(de) ? 'Fedecrédito' : /siman/i.test(de) ? 'Credisiman' : /bac/i.test(de) ? 'BAC' : '';
-  var huella = e.ok ? [e.tarjeta, e.fecha_corte].join('|') : 'correo|' + m.getId();
-  if (leerTabla_('estados_cuenta').some(function (f) { return f.huella === huella; })) return true;
+  var banco = /cuscatlan/i.test(c.de) ? 'Cuscatlán' : /fedecredito/i.test(c.de) ? 'Fedecrédito' : /siman/i.test(c.de) ? 'Credisiman' : /bac/i.test(c.de) ? 'BAC' : '';
+  var huella = e.ok ? [e.tarjeta, e.fecha_corte].join('|') : 'correo|' + c.id;
+  var previo = null;
+  leerTabla_('estados_cuenta').forEach(function (f) { if (f.huella === huella) previo = f; });
+  if (previo && previo.archivo) return true;
   var archivo = '';
-  try { archivo = guardarPdf_(m, banco, e); } catch (err) { anotar_('drive', 'error', String(err && err.message || err)); }
+  try { archivo = guardarPdf_(c, banco, e); } catch (err) { anotar_('drive', 'error', String(err && err.message || err)); }
+  if (previo) { if (archivo) completarArchivo_(huella, archivo); return true; }
   agregarFila_('estados_cuenta', { recibido: new Date().toISOString(), banco: banco, tarjeta: e.tarjeta || '', fecha_corte: e.fecha_corte || '',
     fecha_pago: e.fecha_pago || '', pago_minimo: e.pago_minimo == null ? '' : e.pago_minimo, pago_contado: e.pago_contado == null ? '' : e.pago_contado, huella: huella, archivo: archivo });
   return true;
 }
 
-// Guarda los PDF adjuntos en "Mi plan · Estados de cuenta / AAAA-MM". Devuelve el enlace del primero.
-function guardarPdf_(m, banco, e) {
-  var pdfs = m.getAttachments().filter(function (a) { return /pdf/i.test(a.getContentType()) || /\.pdf$/i.test(a.getName()); });
+function completarArchivo_(huella, archivo) {
+  var hoja = hoja_('estados_cuenta'), v = hoja.getDataRange().getValues(), col = PESTANAS.estados_cuenta;
+  for (var r = 1; r < v.length; r++) if (v[r][col.indexOf('huella')] === huella) { hoja.getRange(r + 1, col.indexOf('archivo') + 1).setNumberFormat('@').setValue(celda_(archivo)); return; }
+}
+
+// Guarda los PDF adjuntos en "Mi plan · Estados de cuenta / AAAA-MM" con la API de
+// Drive y permiso drive.file (el script solo ve los archivos que él mismo crea).
+// Devuelve el enlace del primero.
+function guardarPdf_(c, banco, e) {
+  var pdfs = c.adjuntos.filter(function (a) { return /pdf/i.test(a.tipo) || /\.pdf$/i.test(a.nombre); });
   if (!pdfs.length) return '';
-  var mes = (e.fecha_corte || Utilities.formatDate(m.getDate(), 'America/El_Salvador', 'yyyy-MM-dd')).slice(0, 7);
+  var mes = (e.fecha_corte || Utilities.formatDate(c.fecha, 'America/El_Salvador', 'yyyy-MM-dd')).slice(0, 7);
   var carpeta = subcarpeta_(carpetaEstados_(), mes);
   var enlace = '';
   pdfs.forEach(function (a, i) {
     var nombre = [e.fecha_corte || mes, banco, e.tarjeta ? '····' + e.tarjeta : ''].filter(String).join(' ') + (i ? ' (' + (i + 1) + ')' : '') + '.pdf';
-    if (carpeta.getFilesByName(nombre).hasNext()) return;
-    var f = carpeta.createFile(a.copyBlob()).setName(nombre);
-    if (!enlace) enlace = f.getUrl();
+    var ya = buscarEnDrive_(nombre, carpeta, false);
+    if (ya) { if (!enlace) enlace = ya.webViewLink || ''; return; }
+    var datos = Gmail.Users.Messages.Attachments.get('me', c.id, a.id).data;
+    var blob = Utilities.newBlob(Utilities.base64DecodeWebSafe(datos), 'application/pdf', nombre);
+    var f = Drive.Files.create({ name: nombre, parents: [carpeta], mimeType: 'application/pdf' }, blob, { fields: 'id,webViewLink' });
+    if (!enlace) enlace = f.webViewLink || '';
   });
   return enlace;
 }
 
+var CARPETA = 'application/vnd.google-apps.folder';
+function buscarEnDrive_(nombre, padre, esCarpeta) {
+  var q = "name = '" + nombre.replace(/'/g, "\\'") + "' and trashed = false" + (padre ? " and '" + padre + "' in parents" : '') + (esCarpeta ? " and mimeType = '" + CARPETA + "'" : '');
+  var r = Drive.Files.list({ q: q, fields: 'files(id,webViewLink)', pageSize: 1 });
+  return (r.files && r.files[0]) || null;
+}
 function carpetaEstados_() {
-  var props = PropertiesService.getScriptProperties(), id = props.getProperty('CARPETA_ESTADOS');
-  if (id) { try { return DriveApp.getFolderById(id); } catch (_) {} }
-  var c = DriveApp.createFolder('Mi plan · Estados de cuenta');
-  props.setProperty('CARPETA_ESTADOS', c.getId());
-  return c;
+  var props = PropertiesService.getScriptProperties(), id = props.getProperty('CARPETA_ESTADOS_ID');
+  if (id) { try { var f = Drive.Files.get(id, { fields: 'id,trashed' }); if (f && !f.trashed) return id; } catch (_) {} }
+  var c = Drive.Files.create({ name: 'Mi plan · Estados de cuenta', mimeType: CARPETA }, null, { fields: 'id' });
+  props.setProperty('CARPETA_ESTADOS_ID', c.id);
+  return c.id;
 }
 function subcarpeta_(padre, nombre) {
-  var it = padre.getFoldersByName(nombre);
-  return it.hasNext() ? it.next() : padre.createFolder(nombre);
+  var ya = buscarEnDrive_(nombre, padre, true);
+  return ya ? ya.id : Drive.Files.create({ name: nombre, parents: [padre], mimeType: CARPETA }, null, { fields: 'id' }).id;
 }
 
-// Una sola vez: busca estados de cuenta de los últimos días y los guarda (sin duplicar)
+// Busca estados de cuenta de los últimos días y los guarda (sin duplicar).
+// También completa el PDF de los que se guardaron sin él.
 function estadosAnteriores(dias) {
   var q = 'from:(baccredomatic.com OR bancocuscatlan.com OR sistemafedecredito.com OR simaninternet.net) "estado de cuenta" has:attachment newer_than:' + Math.min(dias || 90, 365) + 'd';
   var n = 0;
-  GmailApp.search(q, 0, 50).forEach(function (h) { h.getMessages().forEach(function (m) { if (procesarEstado_(m, m.getSubject() + ' · ' + textoDe_(m))) n++; }); });
+  (Gmail.Users.Messages.list('me', { q: q, maxResults: 50 }).messages || []).forEach(function (ref) {
+    var c = correo_(ref.id);
+    if (c.verificado && procesarEstado_(c)) n++;
+  });
   PropertiesService.getScriptProperties().setProperty('CALENDARIO_PENDIENTE', '1');
   return { ok: true, estados: n };
 }
@@ -436,20 +496,13 @@ function proximoDia_(desde, dia) {
   return '9999-12-31';
 }
 
-// Texto plano de un correo (si solo trae HTML, se le quitan las etiquetas)
-function textoDe_(m) {
-  var t = m.getPlainBody();
-  if (!t || t.length < 20) t = String(m.getBody()).replace(/<style[\s\S]*?<\/style>/gi, ' ').replace(/<[^>]+>/g, ' ').replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&');
-  return String(t).replace(/\s+/g, ' ').trim();
-}
-
-/** Se ejecuta UNA vez a mano en el editor para aceptar el permiso de Gmail. */
+/** Se ejecuta UNA vez a mano en el editor para aceptar los permisos. */
 function autorizar() {
-  GmailApp.getInboxUnreadCount();
+  Gmail.Users.getProfile('me');
   ScriptApp.getProjectTriggers();
   calendario_();
   carpetaEstados_();
-  Logger.log('Listo: permisos aceptados (Gmail, calendario y Drive).');
+  Logger.log('Listo: permisos aceptados (Gmail solo lectura, calendario y Drive).');
 }
 
 // Lee avisos de compra de los bancos. Devuelve
@@ -528,7 +581,14 @@ function limpiarTexto(texto, max) {
     .replace(/\b\d{4,6}[*Xx•]{4,}(\d{4})\b/g, '****$1')
     .replace(/[*Xx•]{6,}(\d{4})\b/g, '****$1')
     .replace(/\b\d{4}-\d{4}\b/g, '[teléfono]')
+    .replace(/(^|[^*\d])\d{4,7}\b/g, '$1[número]') // códigos, cuentas cortas, últimos 4 sueltos
     .slice(0, max || 500);
+}
+
+// SHA-256 en hexadecimal (para huellas de textos que no se guardan)
+function resumen_(t) {
+  return Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, String(t), Utilities.Charset.UTF_8)
+    .map(function (b) { return ('0' + (b & 255).toString(16)).slice(-2); }).join('');
 }
 
 function num_(s) { return Math.round(Number(String(s).replace(/,/g, '')) * 100) / 100; }
@@ -539,7 +599,7 @@ function num_(s) { return Math.round(Number(String(s).replace(/,/g, '')) * 100) 
 function planAFilas(plan) {
   var t = { config: [], deudas: [], fondos: [], recurrentes: [], puntuales: [], fechas: [], meses: [], movimientos: [] };
   Object.keys(plan).forEach(function (k) {
-    if (LISTAS[k] || k === 'months') return;
+    if (LISTAS[k] || k === 'months' || !claveSegura_(k)) return; // _version, __proto__, etc. no se aceptan del cliente
     t.config.push({ clave: k, valor: JSON.stringify(plan[k]) });
   });
   (plan.debts || []).forEach(function (d) {
@@ -578,7 +638,7 @@ function filasAPlan(tablas) {
   (tablas.config || []).forEach(function (f) {
     if (f.clave === '_version') { version = Number(f.valor) || 0; return; }
     if (f.clave === '_actualizado') { actualizado = String(f.valor); return; }
-    if (f.clave) plan[f.clave] = parsear_(f.valor);
+    if (f.clave && claveSegura_(String(f.clave))) plan[f.clave] = parsear_(f.valor);
   });
   var lista = function (n) { return (tablas[n] || []).filter(function (f) { return f.datos; }).map(function (f) { return JSON.parse(f.datos); }); };
   plan.debts = lista('deudas');
@@ -593,6 +653,10 @@ function filasAPlan(tablas) {
   (tablas.meses || []).forEach(function (f) { if (f.datos) plan.months[f.mes] = JSON.parse(f.datos); });
   return { plan: plan, version: version, actualizado: actualizado };
 }
+
+// Claves que el cliente no puede escribir en config: las internas (_version,
+// _actualizado) y las que cambiarían el prototipo de los objetos.
+function claveSegura_(k) { return /^[A-Za-z][\w-]{0,60}$/.test(k) && ['constructor', 'prototype'].indexOf(k) < 0; }
 
 function parsear_(v) { try { return JSON.parse(v); } catch (e) { return v; } }
 
@@ -627,7 +691,7 @@ function leerTabla_(nombre) {
   var out = [];
   for (var r = 1; r < v.length; r++) {
     var o = {};
-    for (var c = 0; c < col.length; c++) o[col[c]] = v[r][c];
+    for (var c = 0; c < col.length; c++) o[col[c]] = desCelda_(v[r][c]);
     if (iDatos >= 0) o[col[iDatos]] = v[r].slice(iDatos).join('');
     if (col.some(function (k) { return o[k] !== '' && o[k] != null; })) out.push(o);
   }
@@ -638,27 +702,40 @@ function escribirTabla_(nombre, filas) {
   var col = PESTANAS[nombre], h = hoja_(nombre);
   var iDatos = colLarga_(col);
   var valores = filas.map(function (f) {
-    var fila = col.map(function (k) { return f[k] == null ? '' : f[k]; });
-    if (iDatos >= 0) fila = fila.slice(0, iDatos).concat(partir(f[col[iDatos]] == null ? '' : f[col[iDatos]]));
+    var fila = col.map(function (k) { return celda_(f[k]); });
+    if (iDatos >= 0) fila = fila.slice(0, iDatos).concat(partir(f[col[iDatos]] == null ? '' : f[col[iDatos]])); // JSON: empieza con { o [
     return fila;
   });
   var ancho = Math.max(col.length, valores.reduce(function (a, f) { return Math.max(a, f.length); }, 0));
   valores = valores.map(function (f) { while (f.length < ancho) f.push(''); return f; });
-  if (h.getMaxRows() > 1) h.getRange(2, 1, h.getMaxRows() - 1, h.getMaxColumns()).clearContent();
+  // Primero se escribe lo nuevo y después se limpia lo que sobra: si algo falla a
+  // medias, la pestaña nunca queda vacía.
   if (valores.length) {
     if (h.getMaxColumns() < ancho) h.insertColumnsAfter(h.getMaxColumns(), ancho - h.getMaxColumns());
     if (h.getMaxRows() < valores.length + 1) h.insertRowsAfter(h.getMaxRows(), valores.length + 1 - h.getMaxRows());
-    // Texto plano: evita que Sheets convierta "2026-11" en fecha
+    // Texto plano: evita que Sheets convierta "2026-11" en fecha y que algo se lea como fórmula
     h.getRange(2, 1, valores.length, ancho).setNumberFormat('@').setValues(valores);
   }
+  var sobranCols = h.getMaxColumns() - ancho, sobranFilas = h.getMaxRows() - 1 - valores.length;
+  if (valores.length && sobranCols > 0) h.getRange(2, ancho + 1, valores.length, sobranCols).clearContent();
+  if (sobranFilas > 0) h.getRange(valores.length + 2, 1, sobranFilas, h.getMaxColumns()).clearContent();
 }
+
+// Texto seguro para una celda: lo que empieza con = + - @ se guarda con un
+// apóstrofo delante para que Sheets nunca lo trate como fórmula. (Además todo se
+// escribe con formato de texto.) Al leer, se quita ese apóstrofo.
+function celda_(v) {
+  var t = v == null ? '' : String(v);
+  return /^[=+@]/.test(t) || /^-[^\d.]/.test(t) ? "'" + t : t;
+}
+function desCelda_(v) { return typeof v === 'string' && /^'[=+@-]/.test(v) ? v.slice(1) : v; }
 
 // Columna que puede seguir en las columnas de la derecha si el texto es muy largo
 function colLarga_(col) { var i = col.indexOf('datos'); return i >= 0 ? i : col.indexOf('valor'); }
 
 function agregarFila_(nombre, obj) {
   var h = hoja_(nombre), col = PESTANAS[nombre];
-  var fila = col.map(function (k) { return obj[k] == null ? '' : String(obj[k]); });
+  var fila = col.map(function (k) { return celda_(obj[k]); });
   var r = h.getLastRow() + 1;
   if (r > h.getMaxRows()) h.insertRowsAfter(h.getMaxRows(), r - h.getMaxRows());
   // Como texto, para que Sheets no convierta fechas ni montos
@@ -699,7 +776,3 @@ function crearClaves() {
   Logger.log(Object.keys(nuevas).length ? 'Cópialas a un lugar seguro: ' + JSON.stringify(nuevas) : 'Las claves ya existían; no se cambiaron.');
 }
 
-/** Quita el bloqueo por intentos fallidos. */
-function desbloquear() {
-  PropertiesService.getScriptProperties().setProperties({ INTENTOS: '0', BLOQUEO_HASTA: '0' });
-}
