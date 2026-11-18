@@ -240,7 +240,7 @@ function startNext() {
   confirmDlg(`Iniciar ${ENG.label(nk)}`, t.nPending ? `En ${ENG.label(last)} quedan ${t.nPending} pagos sin marcar. Se quedan ahí para que los marques después. El nuevo mes se arma con tus saldos reales de hoy.` : `El nuevo mes se arma con tus saldos reales de hoy.`, `Iniciar ${ENG.label(nk)}`, () => {
     will(`Iniciaste ${ENG.label(nk)}`);
     if (S.months[last].debtEnd == null) S.months[last].debtEnd = totalDebt();
-    const m = ENG.generate(S, nk); S.months[nk] = m; S.current = nk; viewMonth = nk; changed(last, nk); render(); toast(`${ENG.label(nk)} listo`, true);
+    const m = ENG.generate(S, nk); S.months[nk] = m; S.current = nk; ENG.recibirSalario(S, m); viewMonth = nk; changed(last, nk); render(); toast(`${ENG.label(nk)} listo`, true);
   });
 }
 function recalc(k) {
@@ -494,6 +494,33 @@ function dlgClasificar(id) {
     });
 }
 
+// ---------- lo que entra y a dónde va ----------
+// Cada entrada de dinero con los pagos que se hacen con ese dinero debajo.
+// El origen de un movimiento aparte es lo que va antes de la flecha: "Adelanto de Jaime → Pricesmart".
+function origenDe(it) { const i = String(it.name).indexOf(" → "); return i > 0 ? it.name.slice(0, i).trim() : null; }
+function flujoHTML(m, k) {
+  const inc = m.items.filter(x => x.source === "income"), ext = m.items.filter(x => x.source === "extra");
+  const sal = inc.find(x => x.kind === "income" && !x.incId && x.name === (S.salaryName || "Salario líquido"));
+  const hon = inc.filter(x => /^Honorarios|^IVA cobrado/.test(x.name));
+  const imp = m.items.filter(x => x.source === "salary" && x.payWith === "Cuenta de impuestos");
+  const mover = ext.filter(x => x.tag === "mine");
+  const tarjeta = ext.filter(x => (x.debtSign ?? -1) === 1);
+  const grupos = new Map(), sueltos = [];
+  for (const x of ext) { if (mover.includes(x) || tarjeta.includes(x)) continue; const o = origenDe(x); if (o) (grupos.get(o) || grupos.set(o, []).get(o)).push(x); else sueltos.push(x); }
+  const otros = inc.filter(x => x !== sal && !hon.includes(x) && x.amount > 0);
+  const val = x => x.paid ? x.paidAmount : x.amount, suma = xs => xs.reduce((a, x) => a + val(x), 0);
+  const hijo = x => { const o = origenDe(x); return rowItem(o ? Object.assign({}, x, { name: "→ " + x.name.slice(x.name.indexOf(" → ") + 3) }) : x, k); };
+  const tarjetaDe = (titulo, sub, total, cabeza, hijos, cls) => `<div class="fl-card ${cls || ""}"><div class="fl-head"><div><b>${esc(titulo)}</b>${sub ? `<span>${esc(sub)}</span>` : ""}</div>${total != null ? `<strong class="num">${fmt(total)}</strong>` : ""}</div>${cabeza ? `<div class="list fl-cab">${cabeza}</div>` : ""}${hijos.length ? `<div class="fl-hijos">${hijos.join("")}</div>` : ""}</div>`;
+  const cards = [];
+  if (sal) cards.push(tarjetaDe(sal.name.replace(/ \(día \d+\)/, ""), sal.paid ? "Recibido al empezar el mes · cubre tus pagos del mes" : "Cubre tus pagos del mes", val(sal), "", [], "fl-salario"));
+  if (hon.length || imp.length || mover.length) cards.push(tarjetaDe("Honorarios + IVA", "Caen en la cuenta de impuestos; de ahí sale esto", suma(hon), hon.map(x => rowItem(x, k)).join(""), imp.concat(mover).map(x => rowItem(x, k))));
+  for (const [o, xs] of grupos) cards.push(tarjetaDe(o, "Lo que haces con ese dinero", suma(xs), "", xs.map(hijo)));
+  if (sueltos.length) cards.push(tarjetaDe("Otros movimientos aparte", "No salen de tu salario", suma(sueltos), "", sueltos.map(hijo)));
+  if (otros.length) cards.push(tarjetaDe("Otros ingresos", "Se suman a lo de tu salario para los pagos del mes", suma(otros), otros.map(x => rowItem(x, k)).join(""), []));
+  if (tarjeta.length) cards.push(tarjetaDe("Compras con tarjeta", "No es dinero que entra: suben la deuda de la tarjeta", suma(tarjeta), "", tarjeta.map(hijo), "fl-tarjeta"));
+  return cards.length ? `<section class="block"><h2>Lo que entra y a dónde va <small>marca cuando entre y cuando lo uses</small></h2><div class="flujo">${cards.join("")}</div></section>` : "";
+}
+
 function vMes() {
   const keys = monthKeys(); const lastK = keys.at(-1); const maxK = ENG.keyAdd(lastK, 24);
   if (!S.months[viewMonth] && !(viewMonth > lastK && viewMonth <= maxK)) viewMonth = S.current;
@@ -503,6 +530,8 @@ function vMes() {
   const base = Math.max(t.inc, t.total, 1);
   const wP = t.paid / base * 100, wQ = t.pending / base * 100, wF = Math.max(0, t.free) / base * 100;
   const { open, done } = groupsOf(m, k);
+  const sinImp = g => g.key !== "Cuenta de impuestos"; // va en "Lo que entra y a dónde va", debajo de los honorarios
+  const openP = open.filter(sinImp), doneP = done.filter(sinImp);
   const nextG = open.find(g => g.due);
   const fechas = fechasRaw(k);
   const isLast = k === keys.at(-1);
@@ -538,7 +567,6 @@ function vMes() {
     const day = new Date().getDate(); const incs = m.items.filter(x => x.source === "income");
     const sal = incs.find(x => /^Salario/.test(x.name)), hon = incs.find(x => /^Honorarios/.test(x.name));
     const amtOf = re => { const it = m.items.find(x => re.test(x.name) && !x.paid); return it ? it.amount : 0; };
-    if (sal && !sal.paid && day >= 19 && day <= 23) B.note += `<div class="paynote">${ms("payments")}<b>¿Ya llegó tu salario?</b><span class="small muted">Márcalo como recibido para que el mes cuadre.</span><button class="btn" data-act="toggle" data-id="${esc(sal.id)}">Ya llegó ${fmt(sal.amount)}</button></div>`;
     if (hon && !hon.paid && (day >= 28 || day <= 3)) { const iva = amtOf(/^IVA cobrado/), osc = amtOf(/^Contador · mensualidad/), ret = amtOf(/^Retención 10% del contador/); B.note += `<div class="paynote">${ms("receipt_long")}<b>¿Llegaron los honorarios?</b><ul>${iva ? `<li>Separa ${fmt(iva)} de IVA a tu cuenta de impuestos</li>` : ""}${osc ? `<li>Transfiere ${fmt(osc)} ${esc(S.etiquetas && S.etiquetas.contador ? "a " + S.etiquetas.contador : "al contador")} y aparta ${fmt(ret)} de retención</li>` : ""}<li>El resto (${fmt(hon.amount)}) es tuyo</li></ul><button class="btn" data-act="toggle" data-id="${esc(hon.id)}">Ya llegaron</button></div>`; }
   }
   if (nextG) { const d = dueTxt(nextG.due); B.next = `<div class="nextup ${d.c}"><span>Próximo pago</span><b>${esc(nextG.label)}</b><em>${d.t}</em><strong class="num">${fmt(nextG.pend.reduce((a, x) => a + x.amount, 0))}</strong></div>`; }
@@ -556,12 +584,10 @@ function vMes() {
     }
     B.env += `</div></section>`;
   }
-  B.pay = `<section class="block"><h2>Pagos por hacer <small>${open.length ? `ordenados por fecha` : ""}</small></h2>${calStrip(m, k)}${open.length ? `<div class="pgs">${open.slice(0, 4).map(g => groupCard(g, k)).join("")}</div>${open.length > 5 ? moreBtn("Pagos por hacer", `<div class="pgs">${open.map(g => groupCard(g, k)).join("")}</div>`, open.length - 4, "Toca un destino para ver y marcar sus pagos") : open.length === 5 ? `<div class="pgs">${groupCard(open[4], k)}</div>` : ""}` : `<div class="list"><p class="empty">No te queda ningún pago este mes.</p></div>`}</section>`;
-  const inc = m.items.filter(x => x.source === "income");
-  B.inc = `<section class="block"><h2>Ingresos <small>marca cuando los recibas</small></h2><div class="list">${inc.map(x => rowItem(x, k)).join("")}</div></section>`;
-  const ext = m.items.filter(x => x.source === "extra");
-  B.ext = ext.length ? `<section class="block"><h2>Dinero extra <small>no sale de tu salario</small></h2><div class="list">${limitList(ext.map(x => rowItem(x, k)), 2, "Dinero extra", "Movimientos que no salen de tu salario")}</div></section>` : "";
-  B.done = done.length ? `<section class="block"><details class="doneall"><summary>Ya pagado · ${done.length} ${done.length === 1 ? "destino" : "destinos"} · ${fmt(done.reduce((a, g) => a + g.total, 0))}</summary><div class="pgs">${done.map(g => groupCard(g, k)).join("")}</div></details></section>` : "";
+  B.pay = `<section class="block"><h2>Pagos por hacer <small>${openP.length ? `ordenados por fecha` : ""}</small></h2>${calStrip(m, k)}${openP.length ? `<div class="pgs">${openP.slice(0, 4).map(g => groupCard(g, k)).join("")}</div>${openP.length > 5 ? moreBtn("Pagos por hacer", `<div class="pgs">${openP.map(g => groupCard(g, k)).join("")}</div>`, openP.length - 4, "Toca un destino para ver y marcar sus pagos") : openP.length === 5 ? `<div class="pgs">${groupCard(open[4], k)}</div>` : ""}` : `<div class="list"><p class="empty">No te queda ningún pago este mes.</p></div>`}</section>`;
+  B.inc = flujoHTML(m, k);
+  B.ext = "";
+  B.done = doneP.length ? `<section class="block"><details class="doneall"><summary>Ya pagado · ${doneP.length} ${doneP.length === 1 ? "destino" : "destinos"} · ${fmt(doneP.reduce((a, g) => a + g.total, 0))}</summary><div class="pgs">${doneP.map(g => groupCard(g, k)).join("")}</div></details></section>` : "";
   B.end = `<section class="block endcard">
      ${isLast ? `<h2>Fin de mes</h2><p class="small muted" style="margin:0 0 12px">Cuando recibas tu salario del 20 de ${nextName}, cierra este mes. Verás un resumen y se arma ${nextName} con tus saldos reales.</p><button class="btn primary wide" data-act="pass-next">Pasar a ${nextName}<span class="ms after" aria-hidden="true">arrow_forward</span></button>` : m.closed ? "" : `<button class="btn wide" data-act="close-month"><span class="ms" aria-hidden="true">event_available</span>Cerrar este mes</button>`}
      <details class="more"><summary>Más opciones</summary><div class="actions">
@@ -618,7 +644,7 @@ function dlgClose(k, andNext) {
       if (S.months[nk] && (doCarry || doLeft)) toast(`Toca Recalcular en ${ENG.label(nk)} para aplicarlo`);
       m.closed = new Date().toISOString(); m.debtEnd = dEnd;
       m.summary = { planned, real: t.total, diff, debtStart: dStart, debtEnd: dEnd, carried: doCarry ? ENG.r2(carryable.reduce((a, i) => a + i.amount, 0)) : 0, leftover: doLeft ? leftover : 0 };
-      if (andNext && !S.months[nk]) { const mm = ENG.generate(S, nk); S.months[nk] = mm; S.current = nk; viewMonth = nk; changed(k, nk); render(); window.scrollTo({ top: 0 }); toast(`Listo: ${ENG.longLabel(nk)} armado con tus saldos reales`, true); return; }
+      if (andNext && !S.months[nk]) { const mm = ENG.generate(S, nk); S.months[nk] = mm; S.current = nk; ENG.recibirSalario(S, mm); viewMonth = nk; changed(k, nk); render(); window.scrollTo({ top: 0 }); toast(`Listo: ${ENG.longLabel(nk)} armado con tus saldos reales`, true); return; }
       changed(k); render(); if (!S.months[nk] || !(doCarry || doLeft)) toast(`${ENG.label(k)} cerrado`, true);
     });
 }

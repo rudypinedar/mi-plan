@@ -693,3 +693,18 @@ body.bloqueada .shell{visibility:hidden}
 .candado-caja .btn .ms{margin-right:8px}
 .candado-caja .link{display:block;margin:12px auto 0;background:none;border:0;color:var(--jade);font-weight:700;font-size:15px;padding:8px 12px;min-height:44px}
 .candado-caja .link.tenue{color:var(--muted);font-weight:400;font-size:14px}
+
+/* Lo que entra y a dónde va */
+.flujo{display:grid;gap:12px}
+.fl-card{border-radius:22px;overflow:hidden;background:var(--glass);border:1px solid var(--glass-line);box-shadow:var(--glass-hi),var(--glass-shadow);-webkit-backdrop-filter:var(--glass-blur);backdrop-filter:var(--glass-blur)}
+.fl-head{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;padding:14px 16px 12px}
+.fl-head>div{min-width:0}
+.fl-head b{display:block;font-family:var(--f-num);font-weight:600;font-size:16.5px;letter-spacing:-.01em;overflow-wrap:anywhere}
+.fl-head span{display:block;font-size:13px;color:var(--muted);margin-top:2px}
+.fl-head strong{font-family:var(--f-num);font-weight:600;font-size:18px;white-space:nowrap}
+.fl-card .fl-cab{border:0;border-top:1px solid var(--line);border-radius:0;box-shadow:none;background:transparent;-webkit-backdrop-filter:none;backdrop-filter:none}
+.fl-hijos{border-top:1px solid var(--line);background:color-mix(in srgb,var(--surface2) 55%,transparent)}
+.fl-hijos .row{padding-left:22px;min-height:54px}
+.fl-hijos .row .t{font-weight:400;font-size:15px}
+.fl-salario .fl-head strong{color:var(--jade)}
+.fl-tarjeta .fl-head strong{color:var(--debt)}
