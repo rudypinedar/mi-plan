@@ -82,6 +82,29 @@ function avisarConflicto(remoto, version) {
   d.showModal();
 }
 
+// ---------- instalar como app (Android: Chrome ofrece instalar; iPhone: Compartir) ----------
+let promptInstalar = null;
+window.addEventListener("beforeinstallprompt", e => { e.preventDefault(); promptInstalar = e; if (S && view === "ajustes") render(); });
+window.addEventListener("appinstalled", () => { promptInstalar = null; toast("¡Listo! Mi plan quedó instalada"); if (S && view === "ajustes") render(); });
+const instalada = () => window.matchMedia("(display-mode: standalone)").matches || navigator.standalone === true;
+const esIOS = () => /iphone|ipad|ipod/i.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+function instalarHTML() {
+  if (instalada()) return "";
+  const cuerpo = promptInstalar
+    ? `<div class="row"><div class="main"><span class="t">${gIco("install_mobile")}Instala Mi plan en este teléfono</span><span class="m">Se abre como app, sin barra del navegador, y funciona sin señal.</span></div></div>`
+    : esIOS()
+      ? `<div class="row"><div class="main"><span class="t">${gIco("ios_share")}Instálala desde Safari</span><span class="m">Toca Compartir y luego "Agregar a pantalla de inicio".</span></div></div>`
+      : `<div class="row"><div class="main"><span class="t">${gIco("install_mobile")}Instálala desde el navegador</span><span class="m">En Chrome (Android): menú ⋮ y luego "Instalar app" o "Agregar a la pantalla principal".</span></div></div>`;
+  return `<section class="block"><h2>Instalar en tu teléfono</h2><div class="list">${cuerpo}</div>${promptInstalar ? '<div class="actions"><button class="btn primary" data-act="instalar"><span class="ms" aria-hidden="true">install_mobile</span>Instalar app</button></div>' : ""}</section>`;
+}
+// Accesos directos del ícono (mantener presionado): ?accion=gasto | ?accion=bandeja
+function abrirAccesoDirecto() {
+  const a = new URLSearchParams(location.search).get("accion"); if (!a || !S) return;
+  history.replaceState(null, "", location.pathname);
+  if (a === "gasto") { view = "mes"; viewMonth = S.current; render(); dlgSpend(S.current); }
+  else if (a === "bandeja") { view = "mes"; viewMonth = S.current; render(); const el = document.querySelector(".pcbox"); if (el) el.scrollIntoView({ block: "start" }); else toast("No tienes cargos por clasificar"); }
+}
+
 async function boot() {
   render();
   Datos.iniciar({
@@ -94,7 +117,8 @@ async function boot() {
   const loc = Datos.local();
   if (loc && loc.plan && loc.plan.months) { S = loc.plan; prepararPlan(); setSave(loc.pendiente ? "busy" : "", loc.pendiente ? "Cambios por subir" : "Copia del teléfono"); render(); }
   await Datos.sincronizar();
-  if (!S) pantallaConexion("No se pudo cargar tu plan. Revisa tu señal o vuelve a pegar el código.");
+  if (!S) { pantallaConexion("No se pudo cargar tu plan. Revisa tu señal o vuelve a pegar el código."); return; }
+  abrirAccesoDirecto();
 }
 
 // Service worker: abre sin señal (solo en la página publicada)
@@ -342,19 +366,32 @@ function avisosMinimo(k) {
 }
 function fechaCorta(f) { const [y, m, d] = String(f).split("-").map(Number); return d ? `${d} ${MESC[m - 1]}` : ""; }
 
+// Sugerencias: a dónde mandó Rudy cada comercio la última vez (se guarda en el plan)
+function normComercio(c) { return String(c || "").toUpperCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^A-Z. &]+/g, " ").replace(/\s+/g, " ").trim().split(" ").filter(w => w.length > 1).slice(0, 3).join(" "); }
+function sugerencia(x) { const k = normComercio(x.comercio); return k && S.sugerencias ? S.sugerencias[k] || null : null; }
+function textoSugerencia(dest) {
+  if (!dest) return "";
+  if (dest === "card") return "solo a la tarjeta";
+  if (dest === "skip") return "no va en el plan";
+  const env = S.months[S.current].items.find(i => i.envelope && "env:" + (i.recId || i.id) === dest);
+  return env ? env.name.replace(/ \(.*\)/, "") : "";
+}
+
 function bandejaHTML() {
   const lista = Datos.bandeja(); if (!lista.length) return "";
-  const filas = lista.map(x => { const t = tarjetaDe(x.tarjeta); return `<div class="row pcrow"><button class="main" data-act="pc" data-id="${esc(x.id)}"><span class="t">${gIco(t ? "credit_card" : x.nota ? "help" : "receipt_long", t && t.payWith)}${esc(x.comercio || "Cargo sin interpretar")}</span><span class="m">${esc([t ? t.name : x.tarjeta ? "Tarjeta ··" + x.tarjeta : "", fechaCargo(x.fecha), x.origen === "correo" ? "por correo" : x.origen === "sms" ? "por SMS" : ""].filter(Boolean).join(" · "))}</span></button><div class="amt num">${x.monto ? fmt(num(x.monto)) : "—"}</div></div>`; });
+  const filas = lista.map(x => { const t = tarjetaDe(x.tarjeta), sg = textoSugerencia(sugerencia(x)); return `<div class="row pcrow"><button class="main" data-act="pc" data-id="${esc(x.id)}"><span class="t">${gIco(t ? "credit_card" : x.nota ? "help" : "receipt_long", t && t.payWith)}${esc(x.comercio || "Cargo sin interpretar")}${sg ? `<span class="tag a">→ ${esc(sg)}</span>` : ""}</span><span class="m">${esc([t ? t.name : x.tarjeta ? "Tarjeta ··" + x.tarjeta : "", fechaCargo(x.fecha), x.origen === "correo" ? "por correo" : x.origen === "sms" ? "por SMS" : ""].filter(Boolean).join(" · "))}</span></button><div class="amt num">${x.monto ? fmt(num(x.monto)) : "—"}</div></div>`; });
   return `<section class="block pcbox"><h2>Por clasificar <small>${lista.length === 1 ? "1 cargo nuevo" : lista.length + " cargos nuevos"} de tu banco</small></h2><div class="list">${limitList(filas, 4, "Por clasificar", "Toca un cargo para asignarlo")}</div></section>`;
 }
 function dlgClasificar(id) {
   const x = Datos.bandeja().find(y => y.id === id); if (!x) return;
   const m = S.months[S.current], envs = m.items.filter(i => i.envelope), t = tarjetaDe(x.tarjeta), monto = ENG.r2(num(x.monto));
-  const opciones = envs.map((e, i) => { const left = ENG.r2(e.amount - ENG.spentOf(e)); return `<label><input type="radio" name="dest" value="env:${esc(e.id)}" ${i === 0 ? "checked" : ""}><span><b>${icoHtml(e)} ${esc(e.name.replace(/ \(.*\)/, ""))}</b><em class="num">quedan ${fmt0(left)}</em></span></label>`; })
-    .concat(t ? [`<label><input type="radio" name="dest" value="card" ${envs.length ? "" : "checked"}><span><b>${ms("credit_card")} Solo a la tarjeta</b><em>compra aparte, sin sobre</em></span></label>`] : [])
-    .concat([`<label><input type="radio" name="dest" value="skip" ${!envs.length && !t ? "checked" : ""}><span><b>${ms("block")} No va en el plan</b><em>ya lo anoté o no es mío</em></span></label>`]);
+  const sug = sugerencia(x), envSug = sug && sug.startsWith("env:") ? envs.find(e => "env:" + (e.recId || e.id) === sug) : null;
+  const marcado = envSug ? "env:" + envSug.id : sug === "card" && t ? "card" : sug === "skip" ? "skip" : envs.length ? "env:" + envs[0].id : t ? "card" : "skip";
+  const opciones = envs.map((e, i) => { const left = ENG.r2(e.amount - ENG.spentOf(e)); return `<label><input type="radio" name="dest" value="env:${esc(e.id)}" ${marcado === "env:" + e.id ? "checked" : ""}><span><b>${icoHtml(e)} ${esc(e.name.replace(/ \(.*\)/, ""))}</b><em class="num">quedan ${fmt0(left)}</em></span></label>`; })
+    .concat(t ? [`<label><input type="radio" name="dest" value="card" ${marcado === "card" ? "checked" : ""}><span><b>${ms("credit_card")} Solo a la tarjeta</b><em>compra aparte, sin sobre</em></span></label>`] : [])
+    .concat([`<label><input type="radio" name="dest" value="skip" ${marcado === "skip" ? "checked" : ""}><span><b>${ms("block")} No va en el plan</b><em>ya lo anoté o no es mío</em></span></label>`]);
   openDlg(`<h3>${esc(x.comercio || "Cargo del banco")}</h3>
-    <p class="hint">${esc([monto ? fmt(monto) : "", t ? t.name : x.tarjeta ? "tarjeta ··" + x.tarjeta : "", fechaCargo(x.fecha)].filter(Boolean).join(" · "))}${t ? ". Al asignarlo sube el saldo de la tarjeta." : ""}</p>
+    <p class="hint">${esc([monto ? fmt(monto) : "", t ? t.name : x.tarjeta ? "tarjeta ··" + x.tarjeta : "", fechaCargo(x.fecha)].filter(Boolean).join(" · "))}${t ? ". Al asignarlo sube el saldo de la tarjeta." : ""}${sug && textoSugerencia(sug) ? ` La última vez lo mandaste a <b>${esc(textoSugerencia(sug))}</b>.` : ""}</p>
     ${monto ? "" : fld("Monto", "amount", "", "number", 'required placeholder="$0.00"')}
     <fieldset class="seg"><legend>¿A dónde va?</legend>${opciones.join("")}</fieldset>
     <div class="actions"><button class="btn ghost" value="cancel">Cancelar</button><button class="btn primary" value="ok">Listo</button></div>`,
@@ -363,21 +400,22 @@ function dlgClasificar(id) {
       const amt = monto || ENG.r2(num(g(f, "amount")));
       if (dest !== "skip" && !amt) { toast("Escribe el monto"); return false; }
       const nombre = x.comercio || "Cargo del banco";
+      const recordar = d => { const k = normComercio(x.comercio); if (k) { S.sugerencias = Object.assign({}, S.sugerencias || {}); S.sugerencias[k] = d; } };
       if (dest.startsWith("env:")) {
         const env = m.items.find(i => i.id === dest.slice(4)); if (!env) return false;
         will(`Asignaste ${nombre} a ${env.name}`);
-        ENG.anotarGasto(S, env, amt, nombre, t ? t.id : null);
+        ENG.anotarGasto(S, env, amt, nombre, t ? t.id : null); recordar("env:" + (env.recId || env.id));
         Datos.clasificar(x.id, "asignado", "sobre:" + (env.recId || env.id));
         const left = ENG.r2(env.amount - ENG.spentOf(env));
         toast(left >= 0 ? `Anotado. Te quedan ${fmt(left)} en ${env.name.replace(/ \(.*\)/, "").toLowerCase()}` : `Anotado. Te pasaste ${fmt(-left)}`, true);
       } else if (dest === "card" && t) {
         will(`Cargo de ${fmt(amt)} a ${t.name}`);
         const it = { id: ENG.uid(), kind: "manual", source: "extra", cat: "Dinero extra", name: nombre, amount: amt, debtId: t.id, debtSign: 1, note: `Compra con ${t.name}${x.fecha ? " · " + fechaCargo(x.fecha) : ""}`, paid: true, paidAmount: amt };
-        m.items.push(it); ENG.effect(S, it, 1);
+        m.items.push(it); ENG.effect(S, it, 1); recordar("card");
         Datos.clasificar(x.id, "asignado", "tarjeta:" + t.id);
         toast(`Anotado en ${t.name}`, true);
       } else {
-        will(`Descartaste ${nombre}`);
+        will(`Descartaste ${nombre}`); recordar("skip");
         Datos.clasificar(x.id, "descartado", "");
         toast("Listo, no se anota en el plan", true);
       }
@@ -717,6 +755,7 @@ function vAjustes() {
   const log = (S.log || []).slice(-30).reverse();
   h += `<section class="block"><h2>Historial de cambios <small>lo último que hiciste</small></h2><div class="list">${log.length ? limitList(log.map(l => `<div class="row" style="min-height:48px"><div class="main"><span class="t" style="font-weight:400">${gIco("history")}${esc(l.t)}</span><span class="m">${new Date(l.at).toLocaleString("es-SV", { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" })}</span></div></div>`), 5, "Historial de cambios", "Lo último que hiciste en tu plan") : '<p class="empty">Aquí aparecerá cada cambio que hagas.</p>'}</div>
     <div class="actions">${undoStack.length ? `<button class="btn" data-act="undo"><span class="ms" aria-hidden="true">undo</span>Deshacer: ${esc(undoStack.at(-1).label)}</button>` : ""}</div></section>`;
+  h += instalarHTML();
   h += `<section class="block"><h2>Tus datos</h2><div class="list"><div class="row"><div class="main"><span class="t">${gIco(Datos.estado().icono)}${esc(Datos.estado().titulo)}</span><span class="m">${esc(Datos.estado().detalle)}</span></div></div></div>
     <div class="actions"><button class="btn primary" data-act="sync-now"><span class="ms" aria-hidden="true">sync</span>Sincronizar ahora</button><button class="btn" data-act="calendario"><span class="ms" aria-hidden="true">event</span>Actualizar calendario</button><button class="btn" data-act="xlsx"><span class="ms" aria-hidden="true">download</span>Descargar Excel</button><button class="btn" data-act="export"><span class="ms" aria-hidden="true">content_copy</span>Copiar respaldo</button><button class="btn danger" data-act="desconectar"><span class="ms" aria-hidden="true">logout</span>Desconectar este teléfono</button></div></section></div></div>`;
   return h;
@@ -1049,6 +1088,7 @@ document.addEventListener("click", e => {
     case "xlsx": exportXlsx(); break;
     case "export": { const txt = JSON.stringify(S); (navigator.clipboard ? navigator.clipboard.writeText(txt) : Promise.reject()).then(() => toast("Respaldo copiado")).catch(() => toast("No se pudo copiar")); break; }
     case "sync-now": Datos.sincronizar(true); break;
+    case "instalar": if (promptInstalar) { promptInstalar.prompt(); promptInstalar.userChoice.finally(() => { promptInstalar = null; render(); }); } break;
     case "calendario": toast("Actualizando tu calendario…"); Datos.accion("calendario").then(r => toast(r.ok ? `Listo: ${r.eventos} ${r.eventos === 1 ? "evento" : "eventos"} en "Mi plan · pagos"` : (r.error || "No se pudo actualizar"))).catch(() => toast("Sin señal: inténtalo después")); break;
     case "desconectar": confirmDlg("Desconectar este teléfono", "Se borra de este teléfono la copia de tu plan y la clave. Tus datos siguen seguros en tu Google Sheet.", "Desconectar", () => { Datos.desconectar(); location.reload(); }, true); break;
   }
