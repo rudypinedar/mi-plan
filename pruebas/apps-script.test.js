@@ -468,3 +468,13 @@ test("cambiar la clave de ingreso: solo con la de la app, y la vieja deja de ser
   assert.equal(post({ accion: "ingresar", clave: CLAVES.CLAVE_INGRESO, texto: SMS1 }).ok, false, "la vieja ya no sirve");
   assert.equal(post({ accion: "ingresar", clave: nueva, texto: SMS1 }).ok, true);
 });
+
+test("latido de la Mac: en línea solo si avisó hace menos de 5 minutos, y solo con la clave de la app", () => {
+  const { post, P } = entorno(CLAVES);
+  assert.equal(post({ accion: "estadoMac", clave: CLAVES.CLAVE_APP }).mac.enLinea, false, "sin latido está fuera de línea");
+  assert.equal(post({ accion: "latido", clave: CLAVES.CLAVE_INGRESO }).ok, false, "la de ingreso no puede marcar latido");
+  assert.equal(post({ accion: "latido", clave: CLAVES.CLAVE_APP }).ok, true);
+  assert.equal(post({ accion: "leer", clave: CLAVES.CLAVE_APP }).mac.enLinea, true);
+  P.MAC_LATIDO = String(Date.now() - 6 * 60 * 1000);
+  assert.equal(post({ accion: "estadoMac", clave: CLAVES.CLAVE_APP }).mac.enLinea, false, "a los 6 minutos ya está fuera de línea");
+});
