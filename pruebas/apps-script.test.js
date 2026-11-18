@@ -53,7 +53,8 @@ function utilidadesFalsas() {
     getUuid: () => crypto.randomUUID(), formatDate: d => new Date(d).toISOString().slice(0, 10),
     DigestAlgorithm: { SHA_256: "sha256" }, Charset: { UTF_8: "utf8" },
     computeDigest: (alg, t) => [...crypto.createHash("sha256").update(String(t)).digest()].map(b => (b > 127 ? b - 256 : b)),
-    base64DecodeWebSafe: s => [...Buffer.from(s, "base64url")],
+    // Como Apps Script: exige el relleno final (=) o falla
+    base64DecodeWebSafe: s => { if (s.length % 4) throw new Error("No se pudo descifrar la cadena."); return [...Buffer.from(s, "base64url")]; },
     newBlob: (bytes, tipo, nombre) => ({ bytes, tipo, nombre, getDataAsString: () => Buffer.from(bytes).toString("utf8") }),
   };
 }
@@ -72,8 +73,9 @@ function driveFalso() {
 }
 
 // Gmail (API avanzada) simulado. Cada correo: texto, o { texto, asunto, de, auth, pdf }
-function gmailFalso(correos) {
-  const b64 = t => Buffer.from(t, "utf8").toString("base64url");
+function gmailFalso(correos, comoBytes) {
+  // Apps Script puede entregar los datos como base64 sin relleno o ya como bytes
+  const b64 = t => (comoBytes ? [...Buffer.from(t, "utf8")] : Buffer.from(t, "utf8").toString("base64url"));
   const norm = (c, i) => (typeof c === "string" ? { texto: c } : c);
   return {
     correos,
@@ -407,4 +409,12 @@ test("estado de cuenta con PDF: se guarda en Drive una sola vez", () => {
   assert.match(est[0].archivo, /^https:\/\/drive\.google\.com\//);
   env.ctx.estadosAnteriores(90);
   assert.equal(env.ctx.Drive.archivos.filter(f => f.mimeType === "application/pdf").length, 1, "no duplica el PDF");
+});
+
+test("correo: funciona si Gmail entrega los datos ya como bytes", () => {
+  const env = entorno(CLAVES); env.P.CORREOS_VISTOS = "[]";
+  env.ctx.Gmail = gmailFalso([CORREO_ALERTAS, { texto: CORREO_ESTADO, asunto: "Estado de Cuenta", pdf: true }], true);
+  const r = env.ctx.revisarCorreo();
+  assert.equal(r.compras, 1); assert.equal(r.estados, 1);
+  assert.equal(env.ctx.Drive.archivos.filter(f => f.mimeType === "application/pdf").length, 1);
 });

@@ -305,7 +305,17 @@ function correo_(id) {
 }
 
 function decodificar_(datos) {
-  return Utilities.newBlob(Utilities.base64DecodeWebSafe(datos)).getDataAsString('UTF-8');
+  return Utilities.newBlob(bytes64_(datos)).getDataAsString('UTF-8');
+}
+
+// El servicio de Gmail de Apps Script puede entregar los datos ya decodificados
+// (lista de bytes) o como base64 "web safe" sin el relleno final (=), que
+// base64DecodeWebSafe exige. Acepta las dos formas.
+function bytes64_(datos) {
+  if (datos && typeof datos !== 'string') return datos;
+  var t = String(datos || '').replace(/[^A-Za-z0-9_-]/g, '');
+  while (t.length % 4) t += '=';
+  return Utilities.base64DecodeWebSafe(t);
 }
 
 // Estado de cuenta: guarda sus datos (si vienen en el cuerpo) y el PDF en Drive.
@@ -346,7 +356,7 @@ function guardarPdf_(c, banco, e) {
     var ya = buscarEnDrive_(nombre, carpeta, false);
     if (ya) { if (!enlace) enlace = ya.webViewLink || ''; return; }
     var datos = Gmail.Users.Messages.Attachments.get('me', c.id, a.id).data;
-    var blob = Utilities.newBlob(Utilities.base64DecodeWebSafe(datos), 'application/pdf', nombre);
+    var blob = Utilities.newBlob(bytes64_(datos), 'application/pdf', nombre);
     var f = Drive.Files.create({ name: nombre, parents: [carpeta], mimeType: 'application/pdf' }, blob, { fields: 'id,webViewLink' });
     if (!enlace) enlace = f.webViewLink || '';
   });
