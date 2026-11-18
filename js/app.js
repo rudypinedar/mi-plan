@@ -86,6 +86,7 @@ async function boot() {
     alEstado: setSave,
     alRemoto: plan => { const habia = !!S; S = plan; prepararPlan(); render(); if (habia) toast("Actualizado desde tu Sheet"); },
     alConflicto: avisarConflicto,
+    alBandeja: lista => { if (S && view === "mes") render(); },
   });
   if (!Datos.conectado()) { pantallaConexion(); return; }
   const loc = Datos.local();
@@ -310,6 +311,52 @@ function previewMonth(k) {
   while (kk < k) { kk = ENG.keyAdd(kk, 1); m = ENG.generate(s, kk); if (kk < k) for (const it of m.items) if (!it.paid) { it.paid = true; it.paidAmount = it.amount; ENG.effect(s, it, 1); } }
   prevCache = { key, m }; return m;
 }
+// ---------- cargos por clasificar (alertas del banco por correo o SMS) ----------
+const tarjetaDe = ult4 => ult4 ? S.debts.find(d => d.kind === "card" && String(d.digits || "") === String(ult4)) : null;
+function fechaCargo(f) { const m = String(f || "").match(/^(\d{4})-(\d{2})-(\d{2})(?: (\d{2}):(\d{2}))?/); if (!m) return ""; return `${+m[3]} ${MESC[+m[2] - 1]}${m[4] && m[4] + m[5] !== "0000" ? ` · ${+m[4]}:${m[5]}` : ""}`; }
+function bandejaHTML() {
+  const lista = Datos.bandeja(); if (!lista.length) return "";
+  const filas = lista.map(x => { const t = tarjetaDe(x.tarjeta); return `<div class="row pcrow"><button class="main" data-act="pc" data-id="${esc(x.id)}"><span class="t">${gIco(t ? "credit_card" : x.nota ? "help" : "receipt_long", t && t.payWith)}${esc(x.comercio || "Cargo sin interpretar")}</span><span class="m">${esc([t ? t.name : x.tarjeta ? "Tarjeta ··" + x.tarjeta : "", fechaCargo(x.fecha), x.origen === "correo" ? "por correo" : x.origen === "sms" ? "por SMS" : ""].filter(Boolean).join(" · "))}</span></button><div class="amt num">${x.monto ? fmt(num(x.monto)) : "—"}</div></div>`; });
+  return `<section class="block pcbox"><h2>Por clasificar <small>${lista.length === 1 ? "1 cargo nuevo" : lista.length + " cargos nuevos"} de tu banco</small></h2><div class="list">${limitList(filas, 4, "Por clasificar", "Toca un cargo para asignarlo")}</div></section>`;
+}
+function dlgClasificar(id) {
+  const x = Datos.bandeja().find(y => y.id === id); if (!x) return;
+  const m = S.months[S.current], envs = m.items.filter(i => i.envelope), t = tarjetaDe(x.tarjeta), monto = ENG.r2(num(x.monto));
+  const opciones = envs.map((e, i) => { const left = ENG.r2(e.amount - ENG.spentOf(e)); return `<label><input type="radio" name="dest" value="env:${e.id}" ${i === 0 ? "checked" : ""}><span><b>${icoHtml(e)} ${esc(e.name.replace(/ \(.*\)/, ""))}</b><em class="num">quedan ${fmt0(left)}</em></span></label>`; })
+    .concat(t ? [`<label><input type="radio" name="dest" value="card" ${envs.length ? "" : "checked"}><span><b>${ms("credit_card")} Solo a la tarjeta</b><em>compra aparte, sin sobre</em></span></label>`] : [])
+    .concat([`<label><input type="radio" name="dest" value="skip" ${!envs.length && !t ? "checked" : ""}><span><b>${ms("block")} No va en el plan</b><em>ya lo anoté o no es mío</em></span></label>`]);
+  openDlg(`<h3>${esc(x.comercio || "Cargo del banco")}</h3>
+    <p class="hint">${esc([monto ? fmt(monto) : "", t ? t.name : x.tarjeta ? "tarjeta ··" + x.tarjeta : "", fechaCargo(x.fecha)].filter(Boolean).join(" · "))}${t ? ". Al asignarlo sube el saldo de la tarjeta." : ""}</p>
+    ${monto ? "" : fld("Monto", "amount", "", "number", 'required placeholder="$0.00"')}
+    <fieldset class="seg"><legend>¿A dónde va?</legend>${opciones.join("")}</fieldset>
+    <div class="actions"><button class="btn ghost" value="cancel">Cancelar</button><button class="btn primary" value="ok">Listo</button></div>`,
+    f => {
+      const dest = (f.querySelector('input[name="dest"]:checked') || {}).value || "skip";
+      const amt = monto || ENG.r2(num(g(f, "amount")));
+      if (dest !== "skip" && !amt) { toast("Escribe el monto"); return false; }
+      const nombre = x.comercio || "Cargo del banco";
+      if (dest.startsWith("env:")) {
+        const env = m.items.find(i => i.id === dest.slice(4)); if (!env) return false;
+        will(`Asignaste ${nombre} a ${env.name}`);
+        ENG.anotarGasto(S, env, amt, nombre, t ? t.id : null);
+        Datos.clasificar(x.id, "asignado", "sobre:" + (env.recId || env.id));
+        const left = ENG.r2(env.amount - ENG.spentOf(env));
+        toast(left >= 0 ? `Anotado. Te quedan ${fmt(left)} en ${env.name.replace(/ \(.*\)/, "").toLowerCase()}` : `Anotado. Te pasaste ${fmt(-left)}`, true);
+      } else if (dest === "card" && t) {
+        will(`Cargo de ${fmt(amt)} a ${t.name}`);
+        const it = { id: ENG.uid(), kind: "manual", source: "extra", cat: "Dinero extra", name: nombre, amount: amt, debtId: t.id, debtSign: 1, note: `Compra con ${t.name}${x.fecha ? " · " + fechaCargo(x.fecha) : ""}`, paid: true, paidAmount: amt };
+        m.items.push(it); ENG.effect(S, it, 1);
+        Datos.clasificar(x.id, "asignado", "tarjeta:" + t.id);
+        toast(`Anotado en ${t.name}`, true);
+      } else {
+        will(`Descartaste ${nombre}`);
+        Datos.clasificar(x.id, "descartado", "");
+        toast("Listo, no se anota en el plan", true);
+      }
+      changed(); render();
+    });
+}
+
 function vMes() {
   const keys = monthKeys(); const lastK = keys.at(-1); const maxK = ENG.keyAdd(lastK, 24);
   if (!S.months[viewMonth] && !(viewMonth > lastK && viewMonth <= maxK)) viewMonth = S.current;
@@ -387,10 +434,11 @@ function vMes() {
        ${m.closed ? '<button class="btn" data-act="reopen"><span class="ms" aria-hidden="true">lock_open</span>Reabrir mes</button>' : isLast ? '<button class="btn" data-act="close-month"><span class="ms" aria-hidden="true">event_available</span>Solo cerrar el mes</button>' : ""}
      </div></details></section>`;
   if (PREVIEW) { B.hero = B.hero.split('<div class="qa">')[0]; B.end = ""; }
+  B.pc = !PREVIEW && k === S.current && !m.closed ? bandejaHTML() : "";
   B.ins = insight(m, k);
   B.donut = donut(m);
   const o = (n, x) => x ? `<div class="o${n}">${x}</div>` : "";
-  h += `<div class="cols mes"><div class="ca">${o(1, B.hero + B.note)}${o(2, B.ins + B.next)}${o(3, B.chips)}${o(4, B.env)}${o(6, B.donut)}${o(7, B.inc)}${o(8, B.ext)}${o(10, B.end)}</div><div class="cb">${o(5, B.pay)}${o(9, B.done)}</div></div>`;
+  h += `<div class="cols mes"><div class="ca">${o(1, B.hero + B.note + B.pc)}${o(2, B.ins + B.next)}${o(3, B.chips)}${o(4, B.env)}${o(6, B.donut)}${o(7, B.inc)}${o(8, B.ext)}${o(10, B.end)}</div><div class="cb">${o(5, B.pay)}${o(9, B.done)}</div></div>`;
   if (PREVIEW) h = h.replace(/data-act="(toggle|item|pay-group|env|spend|go-pay|move-any|add-item)"/g, 'data-act="ro"').replace('<div class="cols mes">', '<div class="cols mes ro">');
   else if (k === S.current && !m.closed) h += `<button class="fab" data-act="spend" aria-label="Anotar gasto">${ms("add")}</button>`;
 
@@ -954,6 +1002,7 @@ document.addEventListener("click", e => {
     case "order-mode": orderMode = !orderMode; render(); break;
     case "pay-group": { const gk = b.dataset.key; const items = m.items.filter(x => x.source === "salary" && !x.envelope && !x.paid && x.amount > 0 && (gk === "__auto" ? x.autoPaid : !x.autoPaid && (x.payWith || "Otros") === gk)); if (!items.length) break; const before = balSnap(); will(`Pagaste todo a ${gk === "__auto" ? "planilla" : payLabel(gk)}`); for (const it of items) { it.paid = true; it.paidAmount = it.amount; ENG.effect(S, it, 1); } changed(); render(); toast(`${items.length} pagos marcados · ${fmt(items.reduce((s, x) => s + x.amount, 0))}`, true); celebrate(before); break; }
     case "env": { const it = findItem(); if (it) dlgEnv(it, k); break; }
+    case "pc": dlgClasificar(id); break;
     case "close-month": dlgClose(k); break;
     case "reopen": will(`Reabriste ${ENG.label(k)}`); delete m.closed; changed(k); render(); toast("Mes reabierto", true); break;
 

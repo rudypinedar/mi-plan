@@ -655,3 +655,8 @@ body.sin-plan nav.tabs{display:none}
 @media (prefers-reduced-transparency:reduce){
   :root{--glass:var(--surface2);--glass-strong:var(--surface2)}
 }
+
+/* Bandeja "Por clasificar": cargos nuevos del banco */
+.pcbox .list{border-color:color-mix(in srgb,var(--accent) 35%,var(--glass-line));box-shadow:var(--glass-hi),0 0 0 3px color-mix(in srgb,var(--accent) 10%,transparent),var(--glass-shadow)}
+.pcbox h2 small{color:var(--accent-ink)}
+.pcrow .gi .ms{color:var(--accent)}

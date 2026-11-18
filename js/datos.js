@@ -9,9 +9,10 @@
  */
 (function (root) {
   const K_CONEXION = "miplan.conexion", K_DATOS = "miplan.datos";
+  const K_BANDEJA = "miplan.porclasificar", K_CLASIFICADOS = "miplan.clasificados";
   const ESPERA = 1500, TIEMPO_MAX = 30000;
 
-  let cb = { alEstado() {}, alRemoto() {}, alConflicto() {} };
+  let cb = { alEstado() {}, alRemoto() {}, alConflicto() {}, alBandeja() {} };
   let timer = null, subiendo = false, otraVez = false, ultimoError = "";
 
   const leerLS = k => { try { return JSON.parse(localStorage.getItem(k) || "null"); } catch (_) { return null; } };
@@ -40,11 +41,12 @@
     if (!r.ok) throw new Error(r.error || "No se pudo conectar");
     escribirLS(K_CONEXION, c);
     escribirLS(K_DATOS, { plan: r.plan, version: r.version, pendiente: false, sincronizado: Date.now() });
+    guardarBandeja(r.porClasificar);
     return r.plan;
   }
 
   function desconectar() {
-    try { localStorage.removeItem(K_CONEXION); localStorage.removeItem(K_DATOS); } catch (_) {}
+    try { [K_CONEXION, K_DATOS, K_BANDEJA, K_CLASIFICADOS].forEach(k => localStorage.removeItem(k)); } catch (_) {}
   }
 
   // ---------- llamadas al Apps Script ----------
@@ -68,6 +70,23 @@
     return d;
   }
 
+  // ---------- cargos por clasificar (alertas del banco) ----------
+  const bandeja = () => leerLS(K_BANDEJA) || [];
+  const pendientesClasificar = () => leerLS(K_CLASIFICADOS) || [];
+  function guardarBandeja(lista) {
+    if (!Array.isArray(lista)) return;
+    const ya = new Set(pendientesClasificar().map(x => x.id));
+    const nueva = lista.filter(x => !ya.has(x.id));
+    const antes = JSON.stringify(bandeja());
+    escribirLS(K_BANDEJA, nueva);
+    if (JSON.stringify(nueva) !== antes) cb.alBandeja(nueva);
+  }
+  // Rudy asignó o descartó un cargo: sale de la bandeja y se avisa al Sheet en el próximo guardado
+  function clasificar(id, estado, asignadoA) {
+    escribirLS(K_BANDEJA, bandeja().filter(x => x.id !== id));
+    escribirLS(K_CLASIFICADOS, pendientesClasificar().filter(x => x.id !== id).concat([{ id, estado, asignado_a: asignadoA || "" }]));
+  }
+
   // ---------- subir ----------
   function cambio(plan) {
     guardarLocal(plan, { pendiente: true });
@@ -78,11 +97,14 @@
   async function subir(forzar) {
     if (subiendo) { otraVez = true; return; }
     const d = local(); if (!d || !d.pendiente) return;
+    const clas = pendientesClasificar();
     if (!navigator.onLine) { cb.alEstado("err", "Sin señal: se guardará al volver"); return; }
     subiendo = true;
     try {
-      const r = await llamar("guardar", { version: d.version || 0, plan: d.plan, forzar: !!forzar });
+      const r = await llamar("guardar", { version: d.version || 0, plan: d.plan, forzar: !!forzar, clasificados: clas });
       if (r.ok) {
+        const enviados = new Set(clas.map(x => x.id));
+        escribirLS(K_CLASIFICADOS, pendientesClasificar().filter(x => !enviados.has(x.id)));
         const ahora = local();
         // Si hubo más cambios mientras subía, siguen pendientes
         guardarLocal(ahora.plan, { version: r.version, pendiente: JSON.stringify(ahora.plan) !== JSON.stringify(d.plan), sincronizado: Date.now() });
@@ -118,6 +140,7 @@
       const nuevo = !actual || (r.version || 0) !== (actual.version || 0);
       guardarLocal(r.plan, { version: r.version, pendiente: false, sincronizado: Date.now() });
       if (nuevo) cb.alRemoto(r.plan);
+      guardarBandeja(r.porClasificar);
       cb.alEstado("", "Al día con tu Sheet");
     } catch (_) { cb.alEstado("err", "No se pudo conectar: usando la copia del teléfono"); }
   }
@@ -142,6 +165,6 @@
     }
   }
 
-  root.Datos = { iniciar, leerCodigo, conectado, conectar, desconectar, local, cambio, subir, sincronizar, quedarmeConEste, usarRemoto, estado };
+  root.Datos = { iniciar, leerCodigo, conectado, conectar, desconectar, local, cambio, subir, sincronizar, quedarmeConEste, usarRemoto, estado, bandeja, clasificar };
   if (typeof module !== "undefined" && module.exports) module.exports = root.Datos;
 })(typeof self !== "undefined" ? self : this);
