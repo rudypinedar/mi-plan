@@ -2,8 +2,8 @@
 // La app: primero la red y, si no hay señal, la copia guardada.
 // Las letras de Google: primero la copia (no cambian).
 // Las llamadas al Sheet (Apps Script) nunca se guardan aquí.
-const CACHE = "miplan-v4";
-const BASE = ["./", "index.html", "css/app.css", "js/tema.js", "js/motor.js", "js/candado.js", "js/datos.js", "js/app.js", "manifest.json", "icono.png", "icono-192.png"];
+const CACHE = "miplan-v6";
+const BASE = ["./", "index.html", "css/app.css", "js/tema.js", "js/motor.js", "js/candado.js", "js/datos.js", "js/app.js", "manifest.json", "icono-v2.png", "icono-v2-192.png"];
 
 self.addEventListener("install", e => {
   e.waitUntil(caches.open(CACHE).then(c => c.addAll(BASE)).then(() => self.skipWaiting()));

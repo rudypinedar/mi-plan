@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+  <defs>
+    <radialGradient id="fondo" cx="78%" cy="12%" r="110%">
+      <stop offset="0" stop-color="#2C6A4C"/><stop offset=".55" stop-color="#17402E"/><stop offset="1" stop-color="#0F2C20"/>
+    </radialGradient>
+    <linearGradient id="brillo" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffffff" stop-opacity=".10"/><stop offset=".5" stop-color="#ffffff" stop-opacity="0"/>
+    </linearGradient>
+    <linearGradient id="lima" x1="0" y1="1" x2="0" y2="0">
+      <stop offset="0" stop-color="#A9D65A"/><stop offset="1" stop-color="#CFEF8A"/>
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" fill="url(#fondo)"/>
+  <rect width="512" height="512" fill="url(#brillo)"/>
+  <!-- símbolo: tres barras que suben y una flecha; dentro del 50% central (zona segura de Android: círculo del 80%) -->
+  <g transform="translate(256 268) scale(1.12)">
+    <rect x="-96" y="8"   width="44" height="72"  rx="22" fill="#F3F6F0" opacity=".5"/>
+    <rect x="-22" y="-34" width="44" height="114" rx="22" fill="#F3F6F0" opacity=".78"/>
+    <rect x="52"  y="-76" width="44" height="156" rx="22" fill="url(#lima)"/>
+    <path d="M52 -112 L74 -134 L96 -112" fill="none" stroke="#CFEF8A" stroke-width="13" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+</svg>
