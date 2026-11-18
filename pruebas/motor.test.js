@@ -75,8 +75,11 @@ for (const p of planes()) {
   test(`${p.nombre}: pagos parciales se reflejan en lo libre`, () => {
     const s = p.crear(); const k = s.current, m = s.months[k];
     if (m.closed) ENG.reabrirMes(s, k);
-    const it = m.items.find(i => i.source === "salary" && !i.envelope && !i.paid && i.amount >= 10);
+    // Si el mes ya está todo pagado, se usa un pago marcado: se desmarca y se prueba desde ahí
+    const it = m.items.find(i => i.source === "salary" && !i.envelope && !i.paid && i.amount >= 10)
+      || m.items.find(i => i.source === "salary" && !i.envelope && !i.autoPaid && i.amount >= 10);
     assert.ok(it, "no hay un pago para probar");
+    if (it.paid) ENG.marcar(s, it, false);
     const antes = ENG.totals(m).free;
     ENG.marcar(s, it, true, ENG.r2(it.amount - 7.5));
     assert.equal(ENG.totals(m).free, ENG.r2(antes + 7.5), "pagar $7.50 menos debe dejar $7.50 más libres");
