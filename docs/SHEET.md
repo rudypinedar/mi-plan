@@ -23,6 +23,7 @@ El Sheet es privado y es la fuente de verdad. La app lo lee y lo escribe a trav�
 | `meses` | mes del plan (del 20 al 19) | `mes`, `cerrado`, `deuda_inicio`, `deuda_cierre`, `datos` (todos los ítems, lo pagado y los gastos de los sobres) |
 | `movimientos` | ítem de un mes | `mes`, `nombre`, `categoria`, `tipo`, `paga_con`, `monto`, `pagado`, `monto_pagado`, `deuda`, `fondo`. **Solo para consultar**: se reescribe cada vez que se guarda |
 | `por_clasificar` | alerta del banco (SMS o correo) | `id`, `recibido`, `origen`, `fecha`, `monto`, `comercio`, `tarjeta` (últimos 4), `estado` (pendiente, asignado, descartado), `asignado_a`, `nota`, `huella` (evita duplicados) |
+| `estados_cuenta` | estado de cuenta que llegó por correo | `recibido`, `banco`, `tarjeta` (últimos 4), `fecha_corte`, `fecha_pago`, `pago_minimo`, `pago_contado`, `huella` |
 | `bitacora` | evento | `fecha`, `origen`, `accion`, `detalle`. El texto de los SMS se guarda sin números largos ni enlaces |
 
 Agregué dos pestañas que no estaban en `CLAUDE.md`, `puntuales` y `fechas`, para que cada lista del plan tenga la suya.
@@ -36,6 +37,20 @@ Todas se mandan por `POST` con un JSON en el cuerpo y `Content-Type: text/plain`
 | `leer` | `CLAVE_APP` | — | `plan`, `version`, `actualizado`, `porClasificar` (solo los pendientes) |
 | `guardar` | `CLAVE_APP` | `version`, `plan`, opcional `clasificados: [{id, estado, asignado_a}]` | `version` nueva, o `conflicto: true` |
 | `ingresar` | `CLAVE_INGRESO` o `CLAVE_APP` | `texto`, opcional `origen` (sms, correo) | `id`, `interpretado`, o `duplicado: true` |
+| `revisarCorreo` | `CLAVE_APP` | — | cuántas compras, estados de cuenta, duplicados e ignorados encontró |
+| `activarCorreo` | `CLAVE_APP` | — | crea (una vez) el disparador que revisa Gmail cada 15 minutos |
+
+## Correo (Gmail)
+
+- **Remitentes que se revisan:** `baccredomatic.com`, `baccredomatic.sv` y `bancocuscatlan.com`, de los últimos 3 días. Se cambia con la propiedad `BUSQUEDA_CORREO`.
+- **Qué se lee:**
+  - Las compras con tarjeta ("Alerta PRF" y "Sistema de Alertas" de BAC) van a `por_clasificar`.
+  - Los estados de cuenta (Cuscatlán) van a `estados_cuenta`.
+  - Las transferencias, depósitos, códigos y promociones se ignoran.
+  - Las compras rechazadas se anotan solo en la bitácora.
+- **Duplicados:** si una misma compra llega por dos correos distintos (misma tarjeta, monto y día), entra una sola vez.
+- **Primera revisión:** solo toma nota de los correos que ya existían, porque esas compras ya se anotaron a mano.
+- **Qué no hace:** no borra correos ni los marca como leídos. Solo agrega la etiqueta `MiPlan/procesado` a los hilos que usó.
 
 ## Seguridad
 
