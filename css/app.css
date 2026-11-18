@@ -723,3 +723,9 @@ body.bloqueada .shell{visibility:hidden}
 .fl-sub{padding:10px 16px 4px 22px;font-size:12.5px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:var(--muted)}
 .fl-reponer .t{font-weight:700}
 .fl-sobres .t{font-weight:600}
+
+/* Fondos: cada fondo es su propia tarjeta, separadas, sin contenedor de vidrio alrededor */
+.fundgrid{display:grid;grid-template-columns:1fr;gap:12px;background:none!important;border:0!important;box-shadow:none!important;-webkit-backdrop-filter:none!important;backdrop-filter:none!important;overflow:visible;border-radius:0}
+.fundgrid .fund{border-radius:22px;border-top:1px solid var(--glass-line)}
+.fundgrid .fund:first-child{border-top:1px solid var(--glass-line)}
+@media (min-width:900px){.fundgrid{grid-template-columns:1fr 1fr;gap:14px}}

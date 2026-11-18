@@ -494,7 +494,7 @@ function dlgClasificar(id) {
     });
 }
 
-const VERSION_APP = "2026-11-18 · 4";
+const VERSION_APP = "2026-11-18 · 5";
 
 // ---------- lo que entra y a dónde va ----------
 // Cada entrada de dinero con los pagos que se hacen con ese dinero debajo.
@@ -856,7 +856,7 @@ function vFondos() {
       <div class="fa"><button class="btn" data-act="withdraw" data-id="${esc(f.id)}" title="Registra que sacaste dinero de este fondo para pagar algo"><span class="ms" aria-hidden="true">output</span>Sacar dinero</button><button class="btn ghost" data-act="fund" data-id="${esc(f.id)}" title="Cambiar nombre, meta, aporte o saldo"><span class="ms" aria-hidden="true">tune</span>Configurar</button></div></div>`;
   }
   h += `</div></section><div class="actions"><button class="btn primary" data-act="add-fund"><span class="ms" aria-hidden="true">add</span>Nuevo fondo</button></div>
-   <p class="small muted" style="margin-top:14px">El aporte de cada mes aparece en la hoja del mes; cuando lo marcas como pagado, el fondo sube. Usa “Usar dinero” cuando pagues la renta, la graduación o una emergencia.</p>`;
+   <p class="small muted" style="margin-top:14px">El aporte de cada mes aparece en la hoja del mes; cuando lo marcas como pagado, el fondo sube. Usa “Sacar dinero” cuando pagues la renta, la graduación o una emergencia.</p>`;
   return h;
 }
 const longK = k => { const [y, m] = k.split("-").map(Number); return ["Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"][m - 1] + " " + y; };
