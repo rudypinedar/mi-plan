@@ -494,14 +494,54 @@ function dlgClasificar(id) {
     });
 }
 
-const VERSION_APP = "2026-11-18 · 3";
+const VERSION_APP = "2026-11-18 · 4";
 
 // ---------- lo que entra y a dónde va ----------
 // Cada entrada de dinero con los pagos que se hacen con ese dinero debajo.
 // El origen de un movimiento aparte es lo que va antes de la flecha: "Adelanto de Jaime → Pricesmart".
 function origenDe(it) { const i = String(it.name).indexOf(" → "); return i > 0 ? it.name.slice(0, i).trim() : null; }
+// De qué ingreso sale cada pago: "20" (salario) o "30" (honorarios).
+// Lo que elige Rudy queda en el ítem y como preferencia del plan (S.fuentesPref),
+// así el mes siguiente ya viene igual. Por defecto salen del 20 la casa, lo de tu mamá
+// y lo que vence antes del 30; lo demás, y el día a día (sobres), sale de los honorarios.
+const DIA_HONORARIOS = 30, SOBRES = "__sobres";
+const claveFuente = it => it.recId || it.debtId || it.name;
+function fuenteDe(it) {
+  if (it.fuente) return it.fuente;
+  const pref = S.fuentesPref && S.fuentesPref[claveFuente(it)]; if (pref) return pref;
+  return it.recId === "casa" || it.payWith === "MAMÁ" || (it.due >= 20 && it.due < DIA_HONORARIOS) ? "20" : "30";
+}
+const fuenteSobres = m => m.fuenteSobres || (S.fuentesPref && S.fuentesPref[SOBRES]) || "30";
+const pagosConFuente = m => m.items.filter(x => x.source === "salary" && !x.envelope && !x.autoPaid && x.payWith !== "Cuenta de impuestos" && x.amount > 0);
+// Lo del día a día que se pagó con tarjeta y todavía no se repone, por tarjeta
+function porReponer(m) {
+  const out = new Map();
+  for (const e of m.items.filter(x => x.envelope)) for (const g of (e.spent || [])) {
+    if (!g.cardId || g.repuesto) continue;
+    const t = out.get(g.cardId) || { cardId: g.cardId, total: 0, n: 0 }; t.total = ENG.r2(t.total + g.amount); t.n++; out.set(g.cardId, t);
+  }
+  return [...out.values()].filter(t => t.total > 0.004);
+}
+function reponerTarjeta(m, cardId) {
+  const d = ENG.debtById(S, cardId); if (!d) return;
+  const gastos = m.items.filter(x => x.envelope).flatMap(e => (e.spent || []).filter(g => g.cardId === cardId && !g.repuesto));
+  const total = ENG.r2(gastos.reduce((a, g) => a + g.amount, 0)); if (total <= 0) return;
+  will(`Repusiste ${fmt(total)} a ${d.name}`);
+  const it = { id: ENG.uid(), kind: "manual", source: "extra", tag: "reponer", cat: "Tarjetas", name: `Reponer ${d.name}`, payWith: d.payWith, amount: total, debtId: d.id, debtSign: -1, paid: true, paidAmount: total, note: `${gastos.length} ${gastos.length === 1 ? "gasto" : "gastos"} del día a día pagados con la tarjeta` };
+  m.items.push(it); ENG.effect(S, it, 1);
+  for (const g of gastos) g.repuesto = it.id;
+  changed(); render(); toast(`Listo: repusiste ${fmt(total)} a ${d.name}`, true);
+}
+function deshacerReponer(m, it) {
+  will(`Desmarcaste ${it.name}`);
+  ENG.effect(S, it, -1); m.items.splice(m.items.indexOf(it), 1);
+  for (const e of m.items.filter(x => x.envelope)) for (const g of (e.spent || [])) if (g.repuesto === it.id) delete g.repuesto;
+  changed(); render(); toast("Desmarcado: lo de la tarjeta vuelve a estar por reponer");
+}
+
 function flujoHTML(m, k) {
-  const inc = m.items.filter(x => x.source === "income"), ext = m.items.filter(x => x.source === "extra");
+  const inc = m.items.filter(x => x.source === "income"), ext = m.items.filter(x => x.source === "extra" && x.tag !== "reponer");
+  const repuestos = m.items.filter(x => x.source === "extra" && x.tag === "reponer");
   const sal = inc.find(x => x.kind === "income" && !x.incId && x.name === (S.salaryName || "Salario líquido"));
   const hon = inc.filter(x => /^Honorarios|^IVA cobrado/.test(x.name));
   const imp = m.items.filter(x => x.source === "salary" && x.payWith === "Cuenta de impuestos");
@@ -520,15 +560,45 @@ function flujoHTML(m, k) {
     return `<div class="row fl-recibido ${ok ? "paid" : ""}"><button class="chk" data-act="recibido" data-key="${esc(o)}" aria-pressed="${ok}" aria-label="${ok ? "Desmarcar" : "Marcar"} que recibiste: ${esc(o)}"${fijo ? ' data-fijo="1"' : ""}><span>${ICON.check}</span></button><div class="main"><span class="t">${ok ? "Recibido" : "Marca cuando te llegue"}</span><span class="m">${ok ? (recibidos[o] ? "El " + new Date(recibidos[o]).toLocaleDateString("es-SV", { day: "numeric", month: "short" }) : "Ya usaste parte de este dinero") : "Así se habilitan los pagos de abajo"}</span></div><div class="amt num">${fmt(suma(xs))}</div></div>`; };
   const tarjetaDe = (titulo, sub, total, cabeza, hijos, cls) => `<div class="fl-card ${cls || ""}"><div class="fl-head"><div><b>${esc(titulo)}</b>${sub ? `<span>${esc(sub)}</span>` : ""}</div>${total != null ? `<strong class="num">${fmt(total)}</strong>` : ""}</div>${cabeza ? `<div class="list fl-cab">${cabeza}</div>` : ""}${hijos.length ? `<div class="fl-hijos">${hijos.join("")}</div>` : ""}</div>`;
   const cards = [];
-  if (sal) cards.push(tarjetaDe(sal.name.replace(/ \(día \d+\)/, ""), sal.paid ? "Recibido al empezar el mes · cubre tus pagos del mes" : "Cubre tus pagos del mes", val(sal), "", [], "fl-salario"));
+  // Pago del 20 / pago del 30: cada pago sale de uno de los dos ingresos
+  const desde20 = d => d ? (d >= 20 ? d - 20 : d + 11) : 99;
+  const ordenar = xs => xs.slice().sort((a, b) => desde20(a.due) - desde20(b.due) || a.name.localeCompare(b.name));
+  const pagos = pagosConFuente(m), p20 = ordenar(pagos.filter(x => fuenteDe(x) === "20")), p30 = ordenar(pagos.filter(x => fuenteDe(x) === "30"));
+  const conMover = (x, a) => rowItem(x, k).replace(/<\/div>\s*$/, `<button class="fl-mover" data-act="fuente" data-id="${esc(x.id)}" data-a="${a}" aria-label="${x.source === "income" ? "Contar" : "Pagar"} ${esc(x.name)} con el pago del ${a}">al ${a}</button></div>`);
+  const resta = (txt, monto, sub, subFalta) => { const falta = monto < -0.005;
+    return `<div class="row fl-resta ${falta ? "falta" : ""}"><div class="main"><span class="t">${esc(falta ? "Te faltan " + fmt(-monto) : txt)}</span><span class="m">${esc(falta ? subFalta || "Pasa algún pago al otro ingreso" : sub)}</span></div><div class="amt num">${fmt(Math.max(0, monto))}</div></div>`; };
+  const subt = (t, total) => `<div class="fl-sub">${esc(t)} · ${fmt(total)}</div>`;
+  const sobres = ENG.r2(m.items.filter(x => x.envelope).reduce((a, x) => a + x.amount, 0)), fs = fuenteSobres(m);
+  const filaSobres = a => `<div class="row fl-sobres"><div class="main"><span class="t">Día a día (súper, gasolina, gustos)</span><span class="m">${a === "20" ? "Lo que pagues con tarjeta lo repones con el pago del 30" : "Si lo pagas con tarjeta, aquí abajo aparece para reponerla"}</span></div><div class="amt num">${fmt(sobres)}</div><button class="fl-mover" data-act="fuente" data-id="${SOBRES}" data-a="${a}" aria-label="Pagar el día a día con el pago del ${a}">al ${a}</button></div>`;
+  // Otros ingresos (lo que te reponen, créditos): también se asignan a un pago; por defecto al 30
+  const o20 = otros.filter(x => fuenteDe(x) === "20"), o30 = otros.filter(x => fuenteDe(x) === "30");
+  let libre20 = 0, usa20 = 0;
+  if (sal) {
+    const planilla = m.items.filter(x => x.source === "salary" && x.autoPaid);
+    const neto = ENG.r2(val(sal) - suma(planilla) + suma(o20));
+    cards.push(tarjetaDe(sal.name.replace(/ \(día \d+\)/, "") + " · pago del 20", `Tienes ${fmt(neto)}${planilla.length ? " después del descuento de planilla" : ""}${o20.length ? " y con otros ingresos" : ""}`, val(sal), planilla.map(x => rowItem(x, k)).concat(o20.map(x => conMover(x, "30"))).join(""),
+      [subt("Pagas con este dinero", ENG.r2(suma(p20) + (fs === "20" ? sobres : 0)))].concat(p20.map(x => conMover(x, "30")), fs === "20" && sobres ? [filaSobres("30")] : [], [resta("Te queda libre", libre20 = ENG.r2(neto - suma(p20) - (fs === "20" ? sobres : 0)), "%%SUB20%%")]), "fl-salario"));
+  }
   if (hon.length || imp.length || mover.length) {
     const honOk = hon.every(x => x.paid) || imp.concat(mover).some(x => x.paid);
-    const hijosHon = imp.concat(mover).map(x => rowItem(x, k));
-    cards.push(tarjetaDe("Honorarios + IVA", honOk ? "Caen en la cuenta de impuestos; de ahí sale esto" : "Marca los honorarios y el IVA cuando te lleguen", suma(hon), hon.map(x => rowItem(x, k)).join(""), honOk ? hijosHon : hijosHon.map(h => bloquear(h, "Primero marca que te llegaron los honorarios y el IVA"))));
+    const motivo = "Primero marca que te llegaron los honorarios y el IVA";
+    const pend = porReponer(m);
+    const reponer = pend.map(r => { const d = ENG.debtById(S, r.cardId), n = d ? d.name : "la tarjeta";
+      return `<div class="row fl-reponer"><button class="chk" data-act="reponer" data-card="${esc(r.cardId)}" aria-label="Reponer ${esc(n)}"><span>${ICON.check}</span></button><div class="main"><span class="t">Reponer ${esc(n)}</span><span class="m">${r.n} ${r.n === 1 ? "gasto" : "gastos"} del día a día pagados con la tarjeta</span></div><div class="amt num">${fmt(r.total)}</div></div>`; });
+    // Si el día a día sale del 30, reponer la tarjeta es la forma de pagarlo (no se cuenta dos veces)
+    const deLoTuyo = p30.map(x => conMover(x, "20")).concat(fs === "30" && sobres ? [filaSobres("20")] : [], repuestos.map(x => rowItem(x, k)), reponer);
+    const usado = ENG.r2(suma(p30) + (fs === "30" ? Math.max(sobres, suma(repuestos) + pend.reduce((a, r) => a + r.total, 0)) : suma(repuestos) + pend.reduce((a, r) => a + r.total, 0)));
+    const hijosHon = imp.concat(mover).map(x => rowItem(x, k))
+      .concat(deLoTuyo.length ? [`<div class="fl-sub">De lo tuyo pagas · ${fmt(usado)}</div>`] : [], deLoTuyo)
+      .concat(mover.length && deLoTuyo.length ? [(() => { const q = ENG.r2(suma(mover) + suma(o30) - usado);
+        if (q < -0.005 && libre20 + q > -0.005) { usa20 = -q; return `<div class="row fl-resta"><div class="main"><span class="t">Completas con ${fmt(-q)} del pago del 20</span><span class="m">Es lo que te quedó libre del salario</span></div><div class="amt num">${fmt(0)}</div></div>`; }
+        return resta("Te queda de lo tuyo", q, "Para lo que queda del mes", libre20 > 0.005 ? `Lo libre del pago del 20 (${fmt(libre20)}) no alcanza: pasa algún pago o anótalo con tarjeta` : ""); })()] : []);
+    cards.push(tarjetaDe("Honorarios + IVA · pago del 30", honOk ? "Caen en la cuenta de impuestos; de ahí sale esto" : "Marca los honorarios y el IVA cuando te lleguen", suma(hon), hon.map(x => rowItem(x, k)).concat(o30.map(x => conMover(x, "20"))).join(""), honOk ? hijosHon : hijosHon.map(h => bloquear(h.replace('data-act="reponer"', 'data-act="toggle"'), motivo))));
   }
+  if (cards[0]) cards[0] = cards[0].replace("%%SUB20%%", esc(usa20 > 0.005 ? (libre20 - usa20 > 0.005 ? `De eso, ${fmt(usa20)} completa el pago del 30; te sobran ${fmt(libre20 - usa20)}` : "Lo guardas para completar los pagos del 30") : "Un colchón hasta el pago del 30"));
   for (const [o, xs] of grupos) { const ok = llegó(o, xs); cards.push(tarjetaDe(o, ok ? "Lo que haces con ese dinero" : "Todavía no ha llegado", suma(xs), filaRecibido(o, xs), ok ? xs.map(hijo) : xs.map(x => bloquear(hijo(x), "Primero marca que te llegó: " + o)))); }
   if (sueltos.length) cards.push(tarjetaDe("Otros movimientos aparte", "No salen de tu salario", suma(sueltos), "", sueltos.map(hijo)));
-  if (otros.length) cards.push(tarjetaDe("Otros ingresos", "Se suman a lo de tu salario para los pagos del mes", suma(otros), otros.map(x => rowItem(x, k)).join(""), []));
+  if (otros.length && !sal && !(hon.length || imp.length || mover.length)) cards.push(tarjetaDe("Otros ingresos", "Se suman a lo de tu salario para los pagos del mes", suma(otros), otros.map(x => rowItem(x, k)).join(""), []));
   if (tarjeta.length) cards.push(tarjetaDe("Compras con tarjeta", "Márcalas cuando las hagas: suben la deuda de la tarjeta", suma(tarjeta), "", tarjeta.map(x => hijo(x).replace(/Marcar como pagado/g, "Marcar como hecha")), "fl-tarjeta"));
   return cards.length ? `<section class="block"><h2>Lo que entra y a dónde va <small>marca cuando entre y cuando lo uses</small></h2><div class="flujo">${cards.join("")}</div></section>` : "";
 }
@@ -1156,7 +1226,7 @@ document.addEventListener("click", e => {
   const a = b.dataset.act, id = b.dataset.id, k = viewMonth, m = S.months[k];
   const findItem = () => m.items.find(x => x.id === id);
   switch (a) {
-    case "toggle": { const it = findItem(); if (it) togglePaid(it); break; }
+    case "toggle": { const it = findItem(); if (it && it.tag === "reponer" && it.paid) { deshacerReponer(m, it); break; } if (it) togglePaid(it); break; }
     case "item": { const it = findItem(); if (it) dlgItem(it, k); break; }
     case "prev": { const ks = monthKeys(), last = ks.at(-1); viewMonth = k > last ? ENG.keyAdd(k, -1) : ks[Math.max(0, ks.indexOf(k) - 1)]; render(); window.scrollTo({ top: 0 }); break; }
     case "next": { const ks = monthKeys(), last = ks.at(-1); viewMonth = k >= last ? ENG.keyAdd(k, 1) : ks[ks.indexOf(k) + 1]; render(); window.scrollTo({ top: 0 }); break; }
@@ -1200,6 +1270,15 @@ document.addEventListener("click", e => {
     case "export": { const txt = JSON.stringify(S); (navigator.clipboard ? navigator.clipboard.writeText(txt) : Promise.reject()).then(() => toast("Respaldo copiado")).catch(() => toast("No se pudo copiar")); break; }
     case "sync-now": Datos.sincronizar(true); break;
     case "bloqueado": toast(b.dataset.msg || "Primero marca que recibiste ese dinero"); break;
+    case "reponer": reponerTarjeta(m, b.dataset.card); break;
+    case "fuente": {
+      const a = b.dataset.a === "20" ? "20" : "30";
+      if (id === SOBRES) { will(`El día a día ahora sale del pago del ${a}`); m.fuenteSobres = a; S.fuentesPref = Object.assign({}, S.fuentesPref || {}, { [SOBRES]: a }); changed(); render(); toast(`Listo: el día a día sale del pago del ${a}`, true); break; }
+      const it = findItem(); if (!it) break;
+      will(`${it.name}: ahora sale del pago del ${a}`);
+      it.fuente = a; S.fuentesPref = Object.assign({}, S.fuentesPref || {}, { [claveFuente(it)]: a });
+      changed(); render(); toast(`Listo: ${it.name} sale del pago del ${a}`, true); break;
+    }
     case "recibido": {
       const o = b.dataset.key; if (!o) break;
       if (b.dataset.fijo) { toast("Ya marcaste pagos con este dinero: desmárcalos primero"); break; }

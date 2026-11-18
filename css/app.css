@@ -555,7 +555,7 @@ body::before{content:"";position:fixed;inset:-10vh -10vw;z-index:-1;pointer-even
 
 /* Superficies de vidrio */
 .list,.pg,.endcard,.sim,.donut,.fundgrid .fund,.nextup,.intro,.insight,.sumgrid div,.cmp2>div,.paynote,.closed,.preview,.debthero,.schedwrap,.iconbtn,.qa button > span,.eyebtn,.themebtn,.morebtn{
-  background:var(--glass);border:1px solid var(--glass-line);box-shadow:var(--glass-hi),var(--glass-shadow);
+  background:var(--surface2);border:1px solid var(--glass-line);box-shadow:var(--glass-hi),var(--glass-shadow);
   -webkit-backdrop-filter:var(--glass-blur);backdrop-filter:var(--glass-blur)}
 .list{border-radius:22px}
 .pg{border-radius:22px}
@@ -598,7 +598,7 @@ body::before{content:"";position:fixed;inset:-10vh -10vw;z-index:-1;pointer-even
   nav.tabs .navplus{box-shadow:0 6px 16px rgba(0,0,0,.25)}
 }
 @media (min-width:1024px){
-  nav.tabs{background:var(--glass);border-right:1px solid var(--glass-line);
+  nav.tabs{background:var(--surface2);border-right:1px solid var(--glass-line);
     -webkit-backdrop-filter:var(--glass-blur);backdrop-filter:var(--glass-blur)}
 }
 
@@ -616,7 +616,7 @@ dialog::backdrop{background:rgba(10,18,14,.32);-webkit-backdrop-filter:blur(3px)
 .fld input,.fld select,.fld textarea{background:rgba(255,255,255,.55);border-color:var(--line)}
 @media (prefers-color-scheme:dark){:root:not([data-theme="light"]) .fld :is(input,select,textarea){background:rgba(0,0,0,.22)}}
 :root[data-theme="dark"] .fld :is(input,select,textarea){background:rgba(0,0,0,.22)}
-.seg span{background:var(--glass)}
+.seg span{background:var(--surface2)}
 
 /* Aviso flotante de vidrio */
 .toast{background:rgba(21,36,27,.80);color:#F3F6F0;border:1px solid rgba(255,255,255,.14);border-radius:18px;
@@ -628,15 +628,15 @@ dialog::backdrop{background:rgba(10,18,14,.32);-webkit-backdrop-filter:blur(3px)
 .btn,.chk,.qa button > span,.iconbtn,nav.tabs button,.morebtn,.insight{transition:transform .12s ease,background .2s}
 .btn:active,.chk:active,.qa button:active > span,.iconbtn:active,nav.tabs button:active,.morebtn:active,.insight:active{transform:scale(.96)}
 .btn{border-radius:14px}
-.btn:not(.primary):not(.danger):not(.ghost){background:var(--glass);border-color:var(--glass-line);-webkit-backdrop-filter:var(--glass-blur);backdrop-filter:var(--glass-blur)}
+.btn:not(.primary):not(.danger):not(.ghost){background:var(--surface2);border-color:var(--glass-line);-webkit-backdrop-filter:var(--glass-blur);backdrop-filter:var(--glass-blur)}
 
 /* Estado de guardado como píldora */
-.save{padding:4px 10px;border-radius:999px;background:var(--glass);border:1px solid var(--glass-line)}
+.save{padding:4px 10px;border-radius:999px;background:var(--surface2);border:1px solid var(--glass-line)}
 
 /* Pantalla de conexión */
 body.sin-plan nav.tabs{display:none}
 .conectar{max-width:420px;margin:8vh auto 0;padding:28px 22px;border-radius:28px;text-align:center;
-  background:var(--glass);border:1px solid var(--glass-line);box-shadow:var(--glass-hi),var(--glass-shadow);
+  background:var(--surface2);border:1px solid var(--glass-line);box-shadow:var(--glass-hi),var(--glass-shadow);
   -webkit-backdrop-filter:var(--glass-blur);backdrop-filter:var(--glass-blur)}
 .conectar h2{font-family:var(--f-num);font-weight:600;font-size:24px;margin:10px 0 6px}
 .conectar p{margin:0 0 18px;font-size:15px}
@@ -685,7 +685,7 @@ body.sin-plan nav.tabs{display:none}
 /* Candado: pantalla de bloqueo */
 body.bloqueada .shell{visibility:hidden}
 #candado{position:fixed;inset:0;z-index:100;display:grid;place-items:center;padding:24px 16px calc(24px + env(safe-area-inset-bottom,0px));background:var(--bg)}
-.candado-caja{width:100%;max-width:380px;padding:28px 22px;border-radius:28px;text-align:center;background:var(--glass);border:1px solid var(--glass-line);box-shadow:var(--glass-hi),var(--glass-shadow);-webkit-backdrop-filter:var(--glass-blur);backdrop-filter:var(--glass-blur)}
+.candado-caja{width:100%;max-width:380px;padding:28px 22px;border-radius:28px;text-align:center;background:var(--surface2);border:1px solid var(--glass-line);box-shadow:var(--glass-hi),var(--glass-shadow);-webkit-backdrop-filter:var(--glass-blur);backdrop-filter:var(--glass-blur)}
 .candado-caja h2{font-family:var(--f-num);font-weight:600;font-size:22px;margin:12px 0 6px}
 .candado-caja p.muted{margin:0 0 18px}
 .candado-caja form{text-align:left;margin-top:12px}
@@ -696,7 +696,7 @@ body.bloqueada .shell{visibility:hidden}
 
 /* Lo que entra y a dónde va */
 .flujo{display:grid;gap:12px}
-.fl-card{border-radius:22px;overflow:hidden;background:var(--glass);border:1px solid var(--glass-line);box-shadow:var(--glass-hi),var(--glass-shadow);-webkit-backdrop-filter:var(--glass-blur);backdrop-filter:var(--glass-blur)}
+.fl-card{border-radius:22px;overflow:hidden;background:var(--surface2);border:1px solid var(--glass-line);box-shadow:var(--glass-hi),var(--glass-shadow);-webkit-backdrop-filter:var(--glass-blur);backdrop-filter:var(--glass-blur)}
 .fl-head{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;padding:14px 16px 12px}
 .fl-head>div{min-width:0}
 .fl-head b{display:block;font-family:var(--f-num);font-weight:600;font-size:16.5px;letter-spacing:-.01em;overflow-wrap:anywhere}
@@ -713,3 +713,13 @@ body.bloqueada .shell{visibility:hidden}
 .fl-recibido{background:color-mix(in srgb,var(--jade-soft) 55%,transparent)}
 .fl-recibido.paid{background:transparent}
 .version-app{margin:20px 4px 0;text-align:center}
+
+/* Pago del 20 / pago del 30 y reponer tarjetas */
+.fl-mover{flex:none;border:1px solid var(--line);background:var(--surface2);border-radius:999px;padding:4px 10px;font-size:12.5px;font-weight:700;color:var(--muted);min-height:32px;margin-left:4px}
+.fl-mover:active{transform:scale(.95)}
+.fl-resta{min-height:52px;background:color-mix(in srgb,var(--jade-soft) 50%,transparent)}
+.fl-resta .t{font-weight:700}
+.fl-resta.falta{background:var(--debt-soft)} .fl-resta.falta .t{color:var(--debt)}
+.fl-sub{padding:10px 16px 4px 22px;font-size:12.5px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:var(--muted)}
+.fl-reponer .t{font-weight:700}
+.fl-sobres .t{font-weight:600}
