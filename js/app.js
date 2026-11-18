@@ -494,6 +494,8 @@ function dlgClasificar(id) {
     });
 }
 
+const VERSION_APP = "2026-11-18 · 3";
+
 // ---------- lo que entra y a dónde va ----------
 // Cada entrada de dinero con los pagos que se hacen con ese dinero debajo.
 // El origen de un movimiento aparte es lo que va antes de la flecha: "Adelanto de Jaime → Pricesmart".
@@ -510,14 +512,24 @@ function flujoHTML(m, k) {
   const otros = inc.filter(x => x !== sal && !hon.includes(x) && x.amount > 0);
   const val = x => x.paid ? x.paidAmount : x.amount, suma = xs => xs.reduce((a, x) => a + val(x), 0);
   const hijo = x => { const o = origenDe(x); return rowItem(o ? Object.assign({}, x, { name: "→ " + x.name.slice(x.name.indexOf(" → ") + 3) }) : x, k); };
+  // Mientras no se marque que llegó el dinero, sus pagos se ven pero no se pueden marcar
+  const bloquear = (html, motivo) => html.replace(/class="row /g, 'class="row bloq ').replace(/data-act="toggle"/g, `data-act="bloqueado" data-msg="${esc(motivo)}"`);
+  const recibidos = m.recibidos || {};
+  const llegó = (o, xs) => !!recibidos[o] || xs.some(x => x.paid);
+  const filaRecibido = (o, xs) => { const ok = llegó(o, xs), fijo = xs.some(x => x.paid);
+    return `<div class="row fl-recibido ${ok ? "paid" : ""}"><button class="chk" data-act="recibido" data-key="${esc(o)}" aria-pressed="${ok}" aria-label="${ok ? "Desmarcar" : "Marcar"} que recibiste: ${esc(o)}"${fijo ? ' data-fijo="1"' : ""}><span>${ICON.check}</span></button><div class="main"><span class="t">${ok ? "Recibido" : "Marca cuando te llegue"}</span><span class="m">${ok ? (recibidos[o] ? "El " + new Date(recibidos[o]).toLocaleDateString("es-SV", { day: "numeric", month: "short" }) : "Ya usaste parte de este dinero") : "Así se habilitan los pagos de abajo"}</span></div><div class="amt num">${fmt(suma(xs))}</div></div>`; };
   const tarjetaDe = (titulo, sub, total, cabeza, hijos, cls) => `<div class="fl-card ${cls || ""}"><div class="fl-head"><div><b>${esc(titulo)}</b>${sub ? `<span>${esc(sub)}</span>` : ""}</div>${total != null ? `<strong class="num">${fmt(total)}</strong>` : ""}</div>${cabeza ? `<div class="list fl-cab">${cabeza}</div>` : ""}${hijos.length ? `<div class="fl-hijos">${hijos.join("")}</div>` : ""}</div>`;
   const cards = [];
   if (sal) cards.push(tarjetaDe(sal.name.replace(/ \(día \d+\)/, ""), sal.paid ? "Recibido al empezar el mes · cubre tus pagos del mes" : "Cubre tus pagos del mes", val(sal), "", [], "fl-salario"));
-  if (hon.length || imp.length || mover.length) cards.push(tarjetaDe("Honorarios + IVA", "Caen en la cuenta de impuestos; de ahí sale esto", suma(hon), hon.map(x => rowItem(x, k)).join(""), imp.concat(mover).map(x => rowItem(x, k))));
-  for (const [o, xs] of grupos) cards.push(tarjetaDe(o, "Lo que haces con ese dinero", suma(xs), "", xs.map(hijo)));
+  if (hon.length || imp.length || mover.length) {
+    const honOk = hon.every(x => x.paid) || imp.concat(mover).some(x => x.paid);
+    const hijosHon = imp.concat(mover).map(x => rowItem(x, k));
+    cards.push(tarjetaDe("Honorarios + IVA", honOk ? "Caen en la cuenta de impuestos; de ahí sale esto" : "Marca los honorarios y el IVA cuando te lleguen", suma(hon), hon.map(x => rowItem(x, k)).join(""), honOk ? hijosHon : hijosHon.map(h => bloquear(h, "Primero marca que te llegaron los honorarios y el IVA"))));
+  }
+  for (const [o, xs] of grupos) { const ok = llegó(o, xs); cards.push(tarjetaDe(o, ok ? "Lo que haces con ese dinero" : "Todavía no ha llegado", suma(xs), filaRecibido(o, xs), ok ? xs.map(hijo) : xs.map(x => bloquear(hijo(x), "Primero marca que te llegó: " + o)))); }
   if (sueltos.length) cards.push(tarjetaDe("Otros movimientos aparte", "No salen de tu salario", suma(sueltos), "", sueltos.map(hijo)));
   if (otros.length) cards.push(tarjetaDe("Otros ingresos", "Se suman a lo de tu salario para los pagos del mes", suma(otros), otros.map(x => rowItem(x, k)).join(""), []));
-  if (tarjeta.length) cards.push(tarjetaDe("Compras con tarjeta", "No es dinero que entra: suben la deuda de la tarjeta", suma(tarjeta), "", tarjeta.map(hijo), "fl-tarjeta"));
+  if (tarjeta.length) cards.push(tarjetaDe("Compras con tarjeta", "Márcalas cuando las hagas: suben la deuda de la tarjeta", suma(tarjeta), "", tarjeta.map(x => hijo(x).replace(/Marcar como pagado/g, "Marcar como hecha")), "fl-tarjeta"));
   return cards.length ? `<section class="block"><h2>Lo que entra y a dónde va <small>marca cuando entre y cuando lo uses</small></h2><div class="flujo">${cards.join("")}</div></section>` : "";
 }
 
@@ -854,6 +866,7 @@ function vAjustes() {
     <div class="actions">${undoStack.length ? `<button class="btn" data-act="undo"><span class="ms" aria-hidden="true">undo</span>Deshacer: ${esc(undoStack.at(-1).label)}</button>` : ""}</div></section>`;
   h += seguridadHTML();
   h += instalarHTML();
+  h += `<p class="small muted version-app">Versión de la app: ${VERSION_APP}</p>`;
   h += `<section class="block"><h2>Tus datos</h2><div class="list"><div class="row"><div class="main"><span class="t">${gIco(Datos.estado().icono)}${esc(Datos.estado().titulo)}</span><span class="m">${esc(Datos.estado().detalle)}</span></div></div></div>
     <div class="actions"><button class="btn primary" data-act="sync-now"><span class="ms" aria-hidden="true">sync</span>Sincronizar ahora</button><button class="btn" data-act="calendario"><span class="ms" aria-hidden="true">event</span>Actualizar calendario</button><button class="btn" data-act="xlsx"><span class="ms" aria-hidden="true">download</span>Descargar Excel</button><button class="btn" data-act="export"><span class="ms" aria-hidden="true">content_copy</span>Copiar respaldo</button><button class="btn danger" data-act="desconectar"><span class="ms" aria-hidden="true">logout</span>Desconectar este teléfono</button></div></section></div></div>`;
   return h;
@@ -1186,6 +1199,15 @@ document.addEventListener("click", e => {
     case "xlsx": exportXlsx(); break;
     case "export": { const txt = JSON.stringify(S); (navigator.clipboard ? navigator.clipboard.writeText(txt) : Promise.reject()).then(() => toast("Respaldo copiado")).catch(() => toast("No se pudo copiar")); break; }
     case "sync-now": Datos.sincronizar(true); break;
+    case "bloqueado": toast(b.dataset.msg || "Primero marca que recibiste ese dinero"); break;
+    case "recibido": {
+      const o = b.dataset.key; if (!o) break;
+      if (b.dataset.fijo) { toast("Ya marcaste pagos con este dinero: desmárcalos primero"); break; }
+      m.recibidos = Object.assign({}, m.recibidos || {});
+      if (m.recibidos[o]) { will(`Desmarcaste que recibiste ${o}`); delete m.recibidos[o]; }
+      else { will(`Recibiste ${o}`); m.recibidos[o] = new Date().toISOString(); }
+      changed(k); render(); toast(m.recibidos[o] ? `Listo: ya puedes marcar los pagos de ${o}` : "Desmarcado", true); break;
+    }
     case "candado-activar": dlgActivarCandado(); break;
     case "candado-bloquear": Candado.listo().then(() => location.reload()); break;
     case "candado-desactivar": confirmDlg("Desactivar el bloqueo", "La app ya no pedirá huella ni código, y tus datos en este teléfono quedarán sin cifrar.", "Desactivar", async () => { await Candado.desactivar(); render(); toast("Bloqueo desactivado"); }, true); break;

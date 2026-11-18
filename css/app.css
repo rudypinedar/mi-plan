@@ -708,3 +708,8 @@ body.bloqueada .shell{visibility:hidden}
 .fl-hijos .row .t{font-weight:400;font-size:15px}
 .fl-salario .fl-head strong{color:var(--jade)}
 .fl-tarjeta .fl-head strong{color:var(--debt)}
+.row.bloq{opacity:.5}
+.row.bloq .chk{border-style:dashed}
+.fl-recibido{background:color-mix(in srgb,var(--jade-soft) 55%,transparent)}
+.fl-recibido.paid{background:transparent}
+.version-app{margin:20px 4px 0;text-align:center}
