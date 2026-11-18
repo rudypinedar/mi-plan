@@ -40,6 +40,13 @@ function hojaFalsa(nombre) {
   };
 }
 
+function calendarioFalso() {
+  const eventos = [];
+  const cal = { getId: () => "cal1", getEvents: () => eventos.slice().map(e => ({ deleteEvent() { eventos.splice(eventos.indexOf(e), 1); } })),
+    createAllDayEvent: (t, d, o) => { const e = { t, d, o, avisos: [] }; eventos.push(e); return { removeAllReminders() {}, addPopupReminder(m) { e.avisos.push(m); } }; } };
+  return { eventos, Color: { GREEN: "g" }, getCalendarById: () => cal, createCalendar: () => cal };
+}
+
 function entorno(props = {}) {
   const hojas = {};
   const P = Object.assign({}, props);
@@ -48,7 +55,8 @@ function entorno(props = {}) {
     PropertiesService: { getScriptProperties: () => ({ getProperty: k => (k in P ? P[k] : null), setProperty: (k, v) => { P[k] = String(v); }, setProperties: o => Object.assign(P, o) }) },
     LockService: { getScriptLock: () => ({ tryLock: () => true, releaseLock() {} }) },
     ContentService: { MimeType: { JSON: "json" }, createTextOutput: t => ({ setMimeType: () => ({ texto: t }) }) },
-    Utilities: { getUuid: () => require("crypto").randomUUID() },
+    Utilities: { getUuid: () => require("crypto").randomUUID(), formatDate: (d, tz, f) => new Date(d).toISOString().slice(0, 10) },
+    CalendarApp: calendarioFalso(),
     Logger: { log() {} },
   };
   vm.createContext(ctx); vm.runInContext(CODIGO, ctx);
@@ -179,7 +187,7 @@ test("interpretar: formatos de correo de BAC y estados de cuenta", () => {
 
 function gmailFalso(correos) {
   const etiquetados = new Set();
-  const msg = (c, i) => ({ getId: () => "m" + i, getPlainBody: () => c, getBody: () => c, getFrom: () => "Alertas <alertas@banco.example>", getSubject: () => "Alerta", getDate: () => new Date() });
+  const msg = (c, i) => ({ getId: () => "m" + i, getPlainBody: () => c, getBody: () => c, getFrom: () => "Alertas <alertas@banco.example>", getSubject: () => "Alerta", getDate: () => new Date(), getAttachments: () => [] });
   return {
     etiquetados,
     GmailApp: {
@@ -213,4 +221,71 @@ test("la misma compra por dos correos distintos entra una sola vez", () => {
   const g = gmailFalso([CORREO_PRF, CORREO_ALERTAS_MISMA]); env.ctx.GmailApp = g.GmailApp;
   const r = env.ctx.revisarCorreo();
   assert.equal(r.compras, 1); assert.equal(r.duplicados, 1);
+});
+
+test("calendario: pagos pendientes agrupados y cortes de tarjeta", () => {
+  const { ctx } = entorno(CLAVES);
+  const plan = {
+    current: "2030-11", etiquetas: { pagos: { "BANCO A": { nombre: "Tarjeta A" } } },
+    debts: [{ id: "tA", name: "Tarjeta A", kind: "card", balance: 100, cut: 8 }, { id: "tB", name: "Tarjeta B", kind: "card", balance: 0, closed: true, cut: 10 }],
+    months: { "2030-11": { items: [
+      { name: "Tarjeta A — pago", source: "salary", payWith: "BANCO A", amount: 50, due: 3 },
+      { name: "Cuota 0%", source: "salary", payWith: "BANCO A", amount: 20, due: 3 },
+      { name: "Ya pagado", source: "salary", payWith: "X", amount: 10, due: 5, paid: true },
+      { name: "Sobre", source: "salary", amount: 99, envelope: true, due: 4 },
+      { name: "Planilla", source: "salary", amount: 99, autoPaid: true, due: 4 },
+      { name: "Casa", source: "salary", payWith: "Débito", amount: 300, due: 25 },
+    ] } },
+  };
+  const ev = JSON.parse(JSON.stringify(ctx.eventosDelPlan(plan, [], "2030-11-22", 50)));
+  const t = ev.map(e => e.fecha + " " + e.titulo);
+  assert.deepEqual(t, [
+    "2030-11-25 Pagar Débito · $300.00",
+    "2030-12-03 Pagar Tarjeta A · $70.00",
+    "2030-12-08 Corte de Tarjeta A · compras grandes, mejor desde mañana",
+    "2031-01-08 Corte de Tarjeta A · compras grandes, mejor desde mañana",
+  ]);
+  assert.deepEqual(ev[1].avisos, [2340, 900]);
+  assert.match(ev[1].detalle, /Cuota 0%: \$20\.00/);
+  // Lo que ya pasó no se agenda
+  assert.equal(ctx.eventosDelPlan(plan, [], "2030-12-04", 10).filter(e => /Pagar/.test(e.titulo)).length, 0);
+  // Sin "cut" usa el día del último estado de cuenta
+  plan.debts[0].cut = null; plan.debts[0].digits = "0001";
+  const ev2 = ctx.eventosDelPlan(plan, [{ tarjeta: "0001", fecha_corte: "2030-10-21" }], "2030-11-22", 30);
+  assert.ok(ev2.some(e => e.fecha === "2030-12-21" && /Corte/.test(e.titulo)));
+});
+
+test("fechaDePago: el mes del plan va del 20 al 19", () => {
+  const { ctx } = entorno(CLAVES);
+  assert.equal(ctx.fechaDePago_("2030-11", 25), "2030-11-25");
+  assert.equal(ctx.fechaDePago_("2030-11", 3), "2030-12-03");
+  assert.equal(ctx.fechaDePago_("2030-12", 16), "2031-01-16");
+  assert.equal(ctx.fechaDePago_("2031-01", 31), "2031-01-31");
+  assert.equal(ctx.fechaDePago_("2031-01", 30), "2031-01-30");
+});
+
+test("guardar deja el calendario pendiente y la revisión de correo lo actualiza", () => {
+  const env = entorno(CLAVES);
+  const s = iniciar(require("./plan-ejemplo.js")());
+  env.post({ accion: "guardar", clave: CLAVES.CLAVE_APP, version: 0, plan: s });
+  assert.equal(env.P.CALENDARIO_PENDIENTE, "1");
+  env.P.CORREOS_VISTOS = "[]";
+  env.ctx.GmailApp = gmailFalso([]).GmailApp;
+  const r = env.ctx.revisarCorreo();
+  assert.ok(r.calendario && r.calendario.ok, "no actualizó el calendario");
+  assert.equal(env.P.CALENDARIO_PENDIENTE, "0");
+  assert.equal(env.ctx.CalendarApp.eventos.length, r.calendario.eventos);
+});
+
+test("interpretar: Credisiman y Cuscatlán por correo", () => {
+  const { ctx } = entorno(CLAVES);
+  const sim = ctx.interpretar("Cliente, notificación de movimiento en su tarjeta  CREDISIMAN 08/11/2030 · Estimado(a) CLIENTE Se le informa que su tarjeta *CREDISIMAN 0005* ha realizado *compra* por USD *$* *1,391.81* en *TIENDA EJEMPLO*. Cualquier consulta...");
+  assert.deepEqual([sim.tarjeta, sim.monto, sim.comercio, sim.fecha, sim.formato], ["0005", 1391.81, "TIENDA EJEMPLO", "2030-11-08 00:00", "credisiman"]);
+  const pago = ctx.interpretar("notificación de movimiento en su tarjeta CREDISIMAN 08/11/2030 · su tarjeta *CREDISIMAN 0005* ha realizado *pago* por USD *$* *50.00* en *SUCURSAL*.");
+  assert.equal(pago.ignorar, true);
+  const cu = ctx.interpretar("Compra con Tarjeta de Credito Titular · 1213 Estimado Cliente: Se ha realizado una compra con su tarjeta titular de Banco CUSCATLAN XXXXXXXXXX0006 por USD 39.95 en TIENDA DE ROPA el día 2030-09-21 13:03. Consultas al 22220000.");
+  assert.deepEqual([cu.tarjeta, cu.monto, cu.comercio, cu.fecha], ["0006", 39.95, "TIENDA DE ROPA", "2030-09-21 13:03"]);
+  const e = ctx.interpretarEstado("Estado de cuenta de tarjeta Credisiman de noviembre corte 2030-11-13 · el estado de cuenta de su tarjeta CREDISIMAN número XXXXXXXXXXXX0005 Correspondiente al mes noviembre con fecha de corte 2030-11-13 Le recordamos...");
+  assert.deepEqual([e.ok, e.tarjeta, e.fecha_corte, e.fecha_pago], [true, "0005", "2030-11-13", ""]);
+  assert.equal(ctx.limpiarTexto("número XXXXXXXXXXXX0005"), "número ****0005");
 });
