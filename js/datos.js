@@ -9,7 +9,7 @@
  */
 (function (root) {
   const K_CONEXION = "miplan.conexion", K_DATOS = "miplan.datos";
-  const K_BANDEJA = "miplan.porclasificar", K_CLASIFICADOS = "miplan.clasificados";
+  const K_BANDEJA = "miplan.porclasificar", K_CLASIFICADOS = "miplan.clasificados", K_ESTADOS = "miplan.estados";
   const ESPERA = 1500, TIEMPO_MAX = 30000;
 
   let cb = { alEstado() {}, alRemoto() {}, alConflicto() {}, alBandeja() {} };
@@ -42,11 +42,12 @@
     escribirLS(K_CONEXION, c);
     escribirLS(K_DATOS, { plan: r.plan, version: r.version, pendiente: false, sincronizado: Date.now() });
     guardarBandeja(r.porClasificar);
+    if (Array.isArray(r.estadosCuenta)) escribirLS(K_ESTADOS, r.estadosCuenta);
     return r.plan;
   }
 
   function desconectar() {
-    try { [K_CONEXION, K_DATOS, K_BANDEJA, K_CLASIFICADOS].forEach(k => localStorage.removeItem(k)); } catch (_) {}
+    try { [K_CONEXION, K_DATOS, K_BANDEJA, K_CLASIFICADOS, K_ESTADOS].forEach(k => localStorage.removeItem(k)); } catch (_) {}
   }
 
   // ---------- llamadas al Apps Script ----------
@@ -141,6 +142,7 @@
       guardarLocal(r.plan, { version: r.version, pendiente: false, sincronizado: Date.now() });
       if (nuevo) cb.alRemoto(r.plan);
       guardarBandeja(r.porClasificar);
+      if (Array.isArray(r.estadosCuenta)) escribirLS(K_ESTADOS, r.estadosCuenta);
       cb.alEstado("", "Al día con tu Sheet");
     } catch (_) { cb.alEstado("err", "No se pudo conectar: usando la copia del teléfono"); }
   }
@@ -148,6 +150,10 @@
   // Resolver un conflicto
   function quedarmeConEste() { subir(true); }
   function usarRemoto(plan, version) { clearTimeout(timer); guardarLocal(plan, { version, pendiente: false, sincronizado: Date.now() }); cb.alEstado("", "Al día con tu Sheet"); }
+
+  const estadosCuenta = () => leerLS(K_ESTADOS) || [];
+  // Acciones sueltas del Apps Script (por ejemplo, actualizar el calendario)
+  async function accion(nombre, extra) { return llamar(nombre, extra || {}); }
 
   function estado() {
     const d = local();
@@ -165,6 +171,6 @@
     }
   }
 
-  root.Datos = { iniciar, leerCodigo, conectado, conectar, desconectar, local, cambio, subir, sincronizar, quedarmeConEste, usarRemoto, estado, bandeja, clasificar };
+  root.Datos = { iniciar, leerCodigo, conectado, conectar, desconectar, local, cambio, subir, sincronizar, quedarmeConEste, usarRemoto, estado, bandeja, clasificar, estadosCuenta, accion };
   if (typeof module !== "undefined" && module.exports) module.exports = root.Datos;
 })(typeof self !== "undefined" ? self : this);

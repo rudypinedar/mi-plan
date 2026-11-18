@@ -314,6 +314,32 @@ function previewMonth(k) {
 // ---------- cargos por clasificar (alertas del banco por correo o SMS) ----------
 const tarjetaDe = ult4 => ult4 ? S.debts.find(d => d.kind === "card" && String(d.digits || "") === String(ult4)) : null;
 function fechaCargo(f) { const m = String(f || "").match(/^(\d{4})-(\d{2})-(\d{2})(?: (\d{2}):(\d{2}))?/); if (!m) return ""; return `${+m[3]} ${MESC[+m[2] - 1]}${m[4] && m[4] + m[5] !== "0000" ? ` · ${+m[4]}:${m[5]}` : ""}`; }
+// ---------- estados de cuenta (llegan por correo) ----------
+function ultimoEstado(d) {
+  if (!d || !d.digits) return null;
+  return Datos.estadosCuenta().filter(e => String(e.tarjeta) === String(d.digits) && e.fecha_corte).sort((a, b) => String(a.fecha_corte) < String(b.fecha_corte) ? -1 : 1).pop() || null;
+}
+// Mes del plan al que pertenece una fecha de pago (del 20 al 19)
+function mesDeFecha(f) { const [y, m, d] = String(f).split("-").map(Number); return d >= 20 ? `${y}-${String(m).padStart(2, "0")}` : ENG.keyAdd(`${y}-${String(m).padStart(2, "0")}`, -1); }
+// Lo que el plan paga a una tarjeta en un mes (incluye las cuotas 0% que van dentro del pago)
+function planPagaTarjeta(d, k) {
+  const m = S.months[k]; if (!m) return null;
+  const ids = new Set([d.id].concat(S.debts.filter(x => x.parent === d.id).map(x => x.id)));
+  return ENG.r2(m.items.filter(i => ids.has(i.debtId) && (i.debtSign ?? -1) === -1 && i.source !== "income").reduce((a, i) => a + (i.paid ? i.paidAmount : i.amount), 0));
+}
+// Avisos: el banco pide un mínimo mayor que lo que paga el plan ese mes
+function avisosMinimo(k) {
+  const out = [];
+  for (const d of S.debts.filter(x => x.kind === "card" && !x.closed)) {
+    const e = ultimoEstado(d); if (!e || !(num(e.pago_minimo) > 0) || !e.fecha_pago) continue;
+    if (mesDeFecha(e.fecha_pago) !== k) continue;
+    const paga = planPagaTarjeta(d, k); if (paga == null) continue;
+    if (paga + 0.009 < num(e.pago_minimo)) out.push({ d, e, paga });
+  }
+  return out;
+}
+function fechaCorta(f) { const [y, m, d] = String(f).split("-").map(Number); return d ? `${d} ${MESC[m - 1]}` : ""; }
+
 function bandejaHTML() {
   const lista = Datos.bandeja(); if (!lista.length) return "";
   const filas = lista.map(x => { const t = tarjetaDe(x.tarjeta); return `<div class="row pcrow"><button class="main" data-act="pc" data-id="${esc(x.id)}"><span class="t">${gIco(t ? "credit_card" : x.nota ? "help" : "receipt_long", t && t.payWith)}${esc(x.comercio || "Cargo sin interpretar")}</span><span class="m">${esc([t ? t.name : x.tarjeta ? "Tarjeta ··" + x.tarjeta : "", fechaCargo(x.fecha), x.origen === "correo" ? "por correo" : x.origen === "sms" ? "por SMS" : ""].filter(Boolean).join(" · "))}</span></button><div class="amt num">${x.monto ? fmt(num(x.monto)) : "—"}</div></div>`; });
@@ -435,6 +461,7 @@ function vMes() {
      </div></details></section>`;
   if (PREVIEW) { B.hero = B.hero.split('<div class="qa">')[0]; B.end = ""; }
   B.pc = !PREVIEW && k === S.current && !m.closed ? bandejaHTML() : "";
+  if (!PREVIEW && !m.closed) for (const a of avisosMinimo(k)) B.note += `<div class="paynote aviso-min">${ms("warning")}<b>${esc(a.d.name)}: el banco pide un mínimo de ${fmt(num(a.e.pago_minimo))}</b><span class="small muted">Tu plan le paga ${fmt(a.paga)} este mes. Págale al menos el mínimo antes del ${fechaCorta(a.e.fecha_pago)} para evitar recargos.</span><button class="btn" data-act="debt" data-id="${esc(a.d.id)}">Ver la tarjeta</button></div>`;
   B.ins = insight(m, k);
   B.donut = donut(m);
   const o = (n, x) => x ? `<div class="o${n}">${x}</div>` : "";
@@ -689,7 +716,7 @@ function vAjustes() {
   h += `<section class="block"><h2>Historial de cambios <small>lo último que hiciste</small></h2><div class="list">${log.length ? limitList(log.map(l => `<div class="row" style="min-height:48px"><div class="main"><span class="t" style="font-weight:400">${gIco("history")}${esc(l.t)}</span><span class="m">${new Date(l.at).toLocaleString("es-SV", { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" })}</span></div></div>`), 5, "Historial de cambios", "Lo último que hiciste en tu plan") : '<p class="empty">Aquí aparecerá cada cambio que hagas.</p>'}</div>
     <div class="actions">${undoStack.length ? `<button class="btn" data-act="undo"><span class="ms" aria-hidden="true">undo</span>Deshacer: ${esc(undoStack.at(-1).label)}</button>` : ""}</div></section>`;
   h += `<section class="block"><h2>Tus datos</h2><div class="list"><div class="row"><div class="main"><span class="t">${gIco(Datos.estado().icono)}${esc(Datos.estado().titulo)}</span><span class="m">${esc(Datos.estado().detalle)}</span></div></div></div>
-    <div class="actions"><button class="btn primary" data-act="sync-now"><span class="ms" aria-hidden="true">sync</span>Sincronizar ahora</button><button class="btn" data-act="xlsx"><span class="ms" aria-hidden="true">download</span>Descargar Excel</button><button class="btn" data-act="export"><span class="ms" aria-hidden="true">content_copy</span>Copiar respaldo</button><button class="btn danger" data-act="desconectar"><span class="ms" aria-hidden="true">logout</span>Desconectar este teléfono</button></div></section></div></div>`;
+    <div class="actions"><button class="btn primary" data-act="sync-now"><span class="ms" aria-hidden="true">sync</span>Sincronizar ahora</button><button class="btn" data-act="calendario"><span class="ms" aria-hidden="true">event</span>Actualizar calendario</button><button class="btn" data-act="xlsx"><span class="ms" aria-hidden="true">download</span>Descargar Excel</button><button class="btn" data-act="export"><span class="ms" aria-hidden="true">content_copy</span>Copiar respaldo</button><button class="btn danger" data-act="desconectar"><span class="ms" aria-hidden="true">logout</span>Desconectar este teléfono</button></div></section></div></div>`;
   return h;
 }
 
@@ -826,6 +853,13 @@ function dlgDetail(d) {
   if (d.start > S.current) add("Empieza", ENG.longLabel(d.start));
   if (d.phone) add("Teléfono", `<a href="tel:${esc(d.phone.replace(/\D/g, ""))}">${esc(d.phone)}</a>`);
   if (d.extraInfo) add("Detalle", esc(d.extraInfo));
+  const ue = d.kind === "card" ? ultimoEstado(d) : null;
+  if (ue) {
+    add("Último estado de cuenta", `Corte ${fechaCorta(ue.fecha_corte)} · pagar antes del ${fechaCorta(ue.fecha_pago)}`);
+    if (num(ue.pago_minimo) > 0) add("Mínimo según el banco", fmt(num(ue.pago_minimo)));
+    if (num(ue.pago_contado) > 0) add("Pago de contado (sin intereses)", fmt(num(ue.pago_contado)));
+    if (ue.archivo && /^https:\/\/drive\.google\.com\//.test(ue.archivo)) add("PDF", `<a href="${esc(ue.archivo)}" target="_blank" rel="noopener">Abrir en Drive</a>`);
+  }
   if (d.note) add("Nota", esc(d.note));
   const used = d.kind === "card" && d.limit ? d.balance + instT : 0; const usePct = d.limit ? Math.min(100, used / d.limit * 100) : 0;
   const dlgEl = dlg();
@@ -1013,6 +1047,7 @@ document.addEventListener("click", e => {
     case "xlsx": exportXlsx(); break;
     case "export": { const txt = JSON.stringify(S); (navigator.clipboard ? navigator.clipboard.writeText(txt) : Promise.reject()).then(() => toast("Respaldo copiado")).catch(() => toast("No se pudo copiar")); break; }
     case "sync-now": Datos.sincronizar(true); break;
+    case "calendario": toast("Actualizando tu calendario…"); Datos.accion("calendario").then(r => toast(r.ok ? `Listo: ${r.eventos} ${r.eventos === 1 ? "evento" : "eventos"} en "Mi plan · pagos"` : (r.error || "No se pudo actualizar"))).catch(() => toast("Sin señal: inténtalo después")); break;
     case "desconectar": confirmDlg("Desconectar este teléfono", "Se borra de este teléfono la copia de tu plan y la clave. Tus datos siguen seguros en tu Google Sheet.", "Desconectar", () => { Datos.desconectar(); location.reload(); }, true); break;
   }
 });
