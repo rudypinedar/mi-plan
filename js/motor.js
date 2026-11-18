@@ -271,11 +271,21 @@
     return { resumen: m.summary, siguiente, recalcular };
   }
 
-  // Arma el mes que sigue al último, con los saldos de hoy
+  // El salario cae el día 20, el mismo día que empieza el mes del plan: al pasar
+  // al mes siguiente se da por recibido (no hay que marcarlo a mano).
+  function recibirSalario(s, m) {
+    const nombre = s.salaryName || "Salario líquido";
+    const it = m.items.find(i => i.kind === "income" && i.source === "income" && !i.incId && i.name === nombre);
+    if (it && !it.paid && it.amount > 0) { it.paid = true; it.paidAmount = it.amount; it.autoRecibido = true; effect(s, it, 1); }
+    return it || null;
+  }
+
+  // Arma el mes que sigue al último, con los saldos de hoy (y el salario ya recibido)
   function iniciarSiguiente(s) {
     const last = mesesOrdenados(s).at(-1); const nk = keyAdd(last, 1);
     if (s.months[last].debtEnd == null) s.months[last].debtEnd = deudaTotal(s);
     const m = generate(s, nk); s.months[nk] = m; s.current = nk;
+    recibirSalario(s, m);
     return m;
   }
 
@@ -304,6 +314,6 @@
 
   return {
     seed, seedFechas, project, spentOf, generate, effect, totals, keyAdd, label, longLabel, sched, r2, uid, debtById, fundById,
-    deudaTotal, mesesOrdenados, buscarItem, marcar, anotarGasto, resumenCierre, cerrarMes, iniciarSiguiente, reabrirMes, recalcular,
+    deudaTotal, mesesOrdenados, buscarItem, marcar, anotarGasto, resumenCierre, cerrarMes, iniciarSiguiente, reabrirMes, recalcular, recibirSalario,
   };
 });

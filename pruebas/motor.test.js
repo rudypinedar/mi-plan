@@ -144,3 +144,17 @@ test("mismo resultado que el motor original", { skip: !(ORIG && NOMBRES) && "fal
     assert.deepEqual(limpiar(ENG.project(a)), limpiar(ORIG.project(b)), `${p.nombre}: la proyección difiere`);
   }
 });
+
+test("al empezar el mes, el salario queda recibido solo (y los demás ingresos no)", () => {
+  const s = iniciar(planEjemplo()); pagarTodo(s, s.current);
+  const r = ENG.cerrarMes(s, s.current, { iniciarSiguiente: true, ahora: FECHA });
+  const ingresos = r.siguiente.items.filter(i => i.source === "income");
+  const sal = ingresos.find(i => i.name === (s.salaryName || "Salario líquido"));
+  assert.ok(sal && sal.paid && sal.paidAmount === sal.amount, "el salario no quedó recibido");
+  assert.ok(ingresos.filter(i => i !== sal && i.amount > 0).every(i => !i.paid), "otro ingreso quedó recibido sin marcarlo");
+  const res = ENG.resumenCierre(s, s.current);
+  assert.ok(!res.incPending.some(i => i === sal), "el salario no debe aparecer como pendiente al cerrar");
+  ENG.recibirSalario(s, r.siguiente);
+  assert.equal(ENG.totals(r.siguiente).inc, ENG.totals(r.siguiente).inc, "llamarlo dos veces no duplica");
+  assert.equal(r.siguiente.items.filter(i => i === sal && i.paid).length, 1);
+});
