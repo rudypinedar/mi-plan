@@ -660,3 +660,24 @@ body.sin-plan nav.tabs{display:none}
 .pcbox .list{border-color:color-mix(in srgb,var(--accent) 35%,var(--glass-line));box-shadow:var(--glass-hi),0 0 0 3px color-mix(in srgb,var(--accent) 10%,transparent),var(--glass-shadow)}
 .pcbox h2 small{color:var(--accent-ink)}
 .pcrow .gi .ms{color:var(--accent)}
+
+/* ---- Nada se sale de su tarjeta (revisión de diseño, nov 2026) ----
+   Los montos grandes se ajustan al ancho de SU tarjeta (unidades cqi),
+   no al de la pantalla; y los bloques dentro de filas y cuadrículas
+   pueden encogerse en vez de empujar hacia afuera. */
+.ringrow>div,.legend3>div,.sumgrid>div,.cmp2>div,.hrow>*,.pgh>*,.fund .head>*,.env .et>*,.dc .dcm,.row .main,.nextup>*{min-width:0}
+.ringrow>div{flex:1 1 auto;container-type:inline-size}
+.ringrow .big{font-size:clamp(20px,16cqi,40px)!important;white-space:nowrap;letter-spacing:-.02em}
+.hero{container-type:inline-size}
+.hero .big{max-width:100%}
+.hero.dark .big{font-size:clamp(30px,14cqi,52px)}
+.legend3 b,.sumgrid b,.cmp2 b,.amt,.fund .head>:last-child,.env .et>span,.nextup strong{white-space:nowrap}
+.pgt{flex:none;white-space:nowrap}.pgt small{white-space:normal}
+.fund .head>:first-child{overflow-wrap:anywhere}
+.legend3>div{container-type:inline-size}
+.legend3 b{font-size:clamp(12px,15cqi,16px)}
+.cmp2>div{container-type:inline-size}
+.cmp2 b{font-size:clamp(15px,12cqi,19px)}
+.sumgrid>div{container-type:inline-size}
+.sumgrid b{font-size:clamp(14px,11cqi,18px)}
+.row .t,.dc .t,.pgh b{overflow-wrap:anywhere}

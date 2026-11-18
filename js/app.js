@@ -628,7 +628,7 @@ function chart(p) {
   const area = `M${X(route[0][0])},${Y(0)} L${pts(route).replace(/ /g, " L")} L${X(route.at(-1)[0])},${Y(0)} Z`;
   const yrs = keys.filter(k => k.endsWith("-01"));
   const xl = yrs.map(k => `<line x1="${X(k)}" x2="${X(k)}" y1="${P.t}" y2="${H - P.b}" stroke="var(--line)"/><text x="${X(k) + 3}" y="${H - 9}" font-size="11" fill="var(--muted)">${k.slice(0, 4)}</text>`).join("");
-  let jump = ""; for (let i = 1; i < route.length; i++) if (route[i][1] - route[i - 1][1] > 5000) { jump = `<text x="${X(route[i][0]) + 22}" y="${Y(route[i][1]) + 62}" font-size="11" fill="var(--debt)">+ deuda nueva</text>`; break; }
+  let jump = ""; for (let i = 1; i < route.length; i++) if (route[i][1] - route[i - 1][1] > 5000) { const jx = X(route[i][0]) + 22, fin = jx > W - 110; jump = `<text x="${fin ? X(route[i][0]) - 8 : jx}" y="${Y(route[i][1]) + 62}" font-size="11" fill="var(--debt)" text-anchor="${fin ? "end" : "start"}">+ deuda nueva</text>`; break; }
   const top = `<text x="${W - P.r}" y="12" font-size="11" fill="var(--muted)" text-anchor="end">máx. ${fmt0(max)}</text>`;
   const dots = real.map(([k, v]) => `<circle cx="${X(k)}" cy="${Y(v)}" r="3.5" fill="var(--jade)" stroke="var(--surface)" stroke-width="1.5"/>`).join("");
   const end = p.debtFree ? `<circle cx="${X(p.debtFree)}" cy="${Y(0)}" r="5" fill="var(--jade)"/>` : "";
