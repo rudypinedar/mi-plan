@@ -15,8 +15,10 @@
   let cb = { alEstado() {}, alRemoto() {}, alConflicto() {}, alBandeja() {} };
   let timer = null, subiendo = false, otraVez = false, ultimoError = "";
 
-  const leerLS = k => { try { return JSON.parse(localStorage.getItem(k) || "null"); } catch (_) { return null; } };
-  const escribirLS = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); return true; } catch (_) { return false; } };
+  // Con el candado activo (js/candado.js), lo sensible se guarda cifrado; sin él, en claro
+  const C = () => (typeof root.Candado !== "undefined" ? root.Candado : null);
+  const leerLS = k => { if (C()) return C().get(k); try { return JSON.parse(localStorage.getItem(k) || "null"); } catch (_) { return null; } };
+  const escribirLS = (k, v) => { if (C()) return C().set(k, v); try { localStorage.setItem(k, JSON.stringify(v)); return true; } catch (_) { return false; } };
 
   // ---------- conexión ----------
   function leerCodigo(texto) {
@@ -48,6 +50,7 @@
 
   function desconectar() {
     try { [K_CONEXION, K_DATOS, K_BANDEJA, K_CLASIFICADOS, K_ESTADOS].forEach(k => localStorage.removeItem(k)); } catch (_) {}
+    if (C()) C().borrarTodo();
   }
 
   // ---------- llamadas al Apps Script ----------
