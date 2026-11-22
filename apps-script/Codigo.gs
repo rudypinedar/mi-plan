@@ -75,6 +75,7 @@ function doPost(e) {
     if (p.accion === 'guardar') return json_(conCandado_(function () { return guardar_(p); }));
     if (p.accion === 'ingresar') return json_(conCandado_(function () { return ingresar_(p); }));
     if (p.accion === 'revisarCorreo') return json_(revisarCorreo());
+    if (p.accion === 'correosSinReconocer') return json_(correosSinReconocer(Number(p.dias) || 3));
     if (p.accion === 'activarCorreo') return json_(activarCorreo());
     if (p.accion === 'calendario') return json_(sincronizarCalendario());
     if (p.accion === 'respaldo') return json_(respaldoDiario());
@@ -289,6 +290,10 @@ function revisarCorreo() {
       }
       if (procesarEstado_(c)) { r.estados++; return; }
       r.ignorados++;
+      // Se anota para poder reconocer formatos nuevos (por ejemplo, avisos de débito).
+      // Solo si menciona un monto y no es publicidad, para no llenar la bitácora.
+      if (/(USD|\$)\s?\d/.test(c.texto) && !/no visualiza bien|promoci|OFF\b/i.test(c.texto))
+        anotar_('correo', 'sin reconocer', c.dominio + ' · ' + limpiarTexto(c.texto, 300));
     });
     props.setProperty('CORREOS_VISTOS', JSON.stringify(vistos.slice(-MAX_VISTOS)));
     props.setProperty('CORREO_ULTIMA', new Date().toISOString());
@@ -304,6 +309,21 @@ function revisarCorreo() {
     }
     return r;
   } finally { lock.releaseLock(); }
+}
+
+// Solo lectura: correos de los bancos de los últimos días que no se reconocieron
+// como compra ni como estado de cuenta. Sirve para agregar formatos nuevos.
+function correosSinReconocer(dias) {
+  var props = PropertiesService.getScriptProperties();
+  var q = String(props.getProperty('BUSQUEDA_CORREO') || BUSQUEDA_CORREO).replace(/\s*newer_than:\S+/, '') + ' newer_than:' + Math.min(Math.max(dias || 3, 1), 30) + 'd';
+  var lista = Gmail.Users.Messages.list('me', { q: q, maxResults: 50 }).messages || [];
+  var out = [];
+  lista.forEach(function (ref) {
+    var c = correo_(ref.id);
+    if (interpretar(c.texto).ok || interpretarEstado(c.texto).ok) return;
+    out.push({ fecha: c.fecha.toISOString(), dominio: c.dominio, verificado: c.verificado, texto: limpiarTexto(c.texto, 600) });
+  });
+  return { ok: true, correos: out };
 }
 
 // Lee un correo con la API de Gmail: asunto + texto plano, remitente, adjuntos
