@@ -486,6 +486,15 @@ test("correo: el remitente falso no deja cargos, estados ni PDF", () => {
   assert.equal(env.ctx.Drive.archivos.filter(f => f.mimeType === "application/pdf").length, 0);
 });
 
+test("buscarEnDrive_: escapa la barra invertida y el apóstrofo", () => {
+  const { ctx } = entorno(CLAVES);
+  let q = ""; ctx.Drive.Files.list = o => { q = o.q; return { files: [] }; };
+  ctx.buscarEnDrive_("a\\b'c", null, false);
+  assert.ok(q.startsWith("name = 'a\\\\b\\'c' and"), q);
+  ctx.buscarEnDrive_("fin\\", null, false);
+  assert.ok(q.startsWith("name = 'fin\\\\' and"), "una barra al final no se come la comilla: " + q);
+});
+
 test("estado de cuenta con PDF: se guarda en Drive una sola vez", () => {
   const env = entorno(CLAVES); env.P.CORREOS_VISTOS = "[]";
   env.ctx.Gmail = gmailFalso([{ texto: CORREO_ESTADO, asunto: "Estado de Cuenta Digital", pdf: true }]);

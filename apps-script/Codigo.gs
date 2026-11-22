@@ -434,7 +434,8 @@ function guardarPdf_(c, banco, e) {
 
 var CARPETA = 'application/vnd.google-apps.folder';
 function buscarEnDrive_(nombre, padre, esCarpeta) {
-  var q = "name = '" + nombre.replace(/'/g, "\\'") + "' and trashed = false" + (padre ? " and '" + padre + "' in parents" : '') + (esCarpeta ? " and mimeType = '" + CARPETA + "'" : '');
+  // En las búsquedas de Drive se escapan la barra invertida y el apóstrofo (en ese orden)
+  var q = "name = '" + String(nombre).replace(/\\/g, '\\\\').replace(/'/g, "\\'") + "' and trashed = false" + (padre ? " and '" + padre + "' in parents" : '') + (esCarpeta ? " and mimeType = '" + CARPETA + "'" : '');
   var r = Drive.Files.list({ q: q, fields: 'files(id,webViewLink)', pageSize: 1 });
   return (r.files && r.files[0]) || null;
 }
