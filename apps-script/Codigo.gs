@@ -25,6 +25,7 @@
  */
 
 var MAX_PETICION = 8000000;    // caracteres: un plan normal pesa mucho menos
+var MAX_PATRON = 60;          // largo máximo de los patrones de "diasPago"
 var TAM_CELDA = 45000;         // Sheets acepta 50,000 caracteres por celda
 
 var PESTANAS = {
@@ -584,7 +585,12 @@ function diaDePago_(plan, it) {
   var dp = plan.diasPago || {};
   if (dp.pagos && dp.pagos[it.payWith]) return Number(dp.pagos[it.payWith]);
   var nombres = dp.nombres || [];
-  for (var i = 0; i < nombres.length; i++) { try { if (new RegExp(nombres[i][0], 'i').test(it.name)) return Number(nombres[i][1]); } catch (e) { /* patrón malo */ } }
+  for (var i = 0; i < nombres.length; i++) {
+    var patron = nombres[i] && nombres[i][0];
+    // Solo texto corto: un patrón enorme o que no es texto se ignora
+    if (typeof patron !== 'string' || !patron || patron.length > MAX_PATRON) continue;
+    try { if (new RegExp(patron, 'i').test(String(it.name || ''))) return Number(nombres[i][1]); } catch (e) { /* patrón malo */ }
+  }
   var t = (plan.debts || []).filter(function (d) { return d.kind === 'card' && !d.closed && d.payWith === it.payWith && d.due; })[0];
   return t ? Number(t.due) : 0;
 }

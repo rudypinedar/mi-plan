@@ -374,6 +374,16 @@ test("calendario: lo que no trae día usa el de su destino o el de su tarjeta", 
   assert.deepEqual(t, ["2030-11-20 Pagar FAMILIA · $150.00 · pago del 20", "2030-12-08 Pagar Débito · $90.00 · pago del 30", "2030-12-16 Pagar BANCO A · $23.00 · pago del 20"]);
 });
 
+test("diasPago: los patrones largos o que no son texto se ignoran", () => {
+  const { ctx } = entorno(CLAVES);
+  const plan = (nombres) => ({ debts: [], diasPago: { nombres } });
+  const it = { name: "Mensualidad del gimnasio" };
+  assert.equal(ctx.diaDePago_(plan([["gimnasio", 5]]), it), 5);
+  assert.equal(ctx.diaDePago_(plan([["(a+)+" + "x".repeat(60), 5]]), it), 0, "más de 60 caracteres");
+  assert.equal(ctx.diaDePago_(plan([[{ source: "gimnasio" }, 5], [["gimnasio"], 6], [12, 7]]), it), 0, "no es texto");
+  assert.equal(ctx.diaDePago_(plan([["[", 5], ["gim", 8]]), it), 8, "un patrón malo no rompe los demás");
+});
+
 test("fechaDePago: el mes del plan va del 20 al 19", () => {
   const { ctx } = entorno(CLAVES);
   assert.equal(ctx.fechaDePago_("2030-11", 25), "2030-11-25");
