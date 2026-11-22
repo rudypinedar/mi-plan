@@ -258,7 +258,10 @@ function agregarMovimiento_(texto, origen) {
 
 // Solo se leen correos de estos remitentes. Se puede cambiar sin tocar el
 // código con la propiedad BUSQUEDA_CORREO en Propiedades del script.
-var BUSQUEDA_CORREO = 'from:(baccredomatic.com OR baccredomatic.sv OR bancocuscatlan.com OR sistemafedecredito.com OR simaninternet.net) newer_than:3d';
+// Únicos remitentes aceptados (el dominio exacto o un subdominio). La lista es fija:
+// no se puede ampliar desde Propiedades del script.
+var BANCOS = ['baccredomatic.com', 'baccredomatic.sv', 'bancocuscatlan.com', 'sistemafedecredito.com', 'simaninternet.net'];
+var BUSQUEDA_CORREO = 'from:(' + BANCOS.join(' OR ') + ') newer_than:3d';
 var MAX_VISTOS = 300;
 
 // Busca avisos de compra y estados de cuenta en Gmail. Las compras van a
@@ -326,16 +329,36 @@ function correosSinReconocer(dias) {
   return { ok: true, correos: out };
 }
 
+// Verifica el remitente con los encabezados del correo (función pura, se prueba en Node):
+// - la dirección real es la de dentro de <...> (no el nombre visible);
+// - su dominio tiene que ser uno de BANCOS o un subdominio;
+// - el primer Authentication-Results que escribe Gmail ("mx.google.com;") tiene que
+//   decir dmarc=pass con header.from igual a ese dominio. Los de abajo los puede
+//   escribir quien manda el correo, así que no se miran.
+function verificarRemitente_(encabezados, bancos) {
+  var de = '', auth = null;
+  (encabezados || []).forEach(function (x) {
+    var n = String(x && x.name || '').toLowerCase(), v = String(x && x.value || '');
+    if (n === 'from' && !de) de = v;
+    if (n === 'authentication-results' && auth === null && /^\s*mx\.google\.com;/i.test(v)) auth = v.toLowerCase();
+  });
+  var angulos = de.match(/<([^<>]*)>\s*$/);
+  var direccion = (angulos ? angulos[1] : de).trim().toLowerCase();
+  var partes = direccion.match(/^[^@\s<>"]+@([a-z0-9-]+(?:\.[a-z0-9-]+)+)$/);
+  var dominio = partes ? partes[1] : '';
+  var banco = dominio && (bancos || []).filter(function (b) { return dominio === b || dominio.slice(-(b.length + 1)) === '.' + b; })[0];
+  var dmarc = auth && auth.match(/\bdmarc=pass\b[^;]*?\bheader\.from=([a-z0-9.-]+)/);
+  return { de: de, dominio: dominio, verificado: !!(banco && dmarc && dmarc[1] === dominio) };
+}
+
 // Lee un correo con la API de Gmail: asunto + texto plano, remitente, adjuntos
-// y si pasó la verificación de remitente (DMARC, o SPF/DKIM del mismo dominio).
+// y si pasó la verificación de remitente (ver verificarRemitente_).
 function correo_(id) {
   var m = Gmail.Users.Messages.get('me', id, { format: 'full' });
-  var h = {}; ((m.payload && m.payload.headers) || []).forEach(function (x) { h[String(x.name).toLowerCase()] = String(x.value); });
-  var de = h['from'] || '', dominio = (de.match(/@([\w.-]+)/) || [])[1] || '';
-  var auth = (h['authentication-results'] || '').toLowerCase();
-  var base = dominio.split('.').slice(-2).join('.').toLowerCase();
-  var verificado = /dmarc=pass/.test(auth) || (base && (new RegExp('dkim=pass[^;]*header\\.(i|d)=@?[\\w.-]*' + base.replace(/\./g, '\\.')).test(auth) || new RegExp('spf=pass[^;]*' + base.replace(/\./g, '\\.')).test(auth)));
-  if (/dmarc=fail/.test(auth)) verificado = false;
+  var encabezados = (m.payload && m.payload.headers) || [];
+  var h = {}; encabezados.forEach(function (x) { var n = String(x.name).toLowerCase(); if (!(n in h)) h[n] = String(x.value); });
+  var rem = verificarRemitente_(encabezados, BANCOS);
+  var de = rem.de, dominio = rem.dominio, verificado = rem.verificado;
   var planos = [], html = [], adjuntos = [];
   (function recorrer(parte) {
     if (!parte) return;
@@ -430,7 +453,7 @@ function subcarpeta_(padre, nombre) {
 // Busca estados de cuenta de los últimos días y los guarda (sin duplicar).
 // También completa el PDF de los que se guardaron sin él.
 function estadosAnteriores(dias) {
-  var q = 'from:(baccredomatic.com OR bancocuscatlan.com OR sistemafedecredito.com OR simaninternet.net) "estado de cuenta" has:attachment newer_than:' + Math.min(dias || 90, 365) + 'd';
+  var q = 'from:(' + BANCOS.join(' OR ') + ') "estado de cuenta" has:attachment newer_than:' + Math.min(dias || 90, 365) + 'd';
   var n = 0;
   (Gmail.Users.Messages.list('me', { q: q, maxResults: 50 }).messages || []).forEach(function (ref) {
     var c = correo_(ref.id);

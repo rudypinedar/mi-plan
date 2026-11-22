@@ -73,6 +73,8 @@ function driveFalso() {
   };
 }
 
+const AUTH_BAC = "mx.google.com; dkim=pass header.i=@baccredomatic.com header.s=s1; spf=pass (google.com: domain of alertas@baccredomatic.com designates 192.0.2.1 as permitted sender) smtp.mailfrom=alertas@baccredomatic.com; dmarc=pass (p=REJECT sp=REJECT dis=NONE) header.from=baccredomatic.com";
+
 // Gmail (API avanzada) simulado. Cada correo: texto, o { texto, asunto, de, auth, pdf }
 function gmailFalso(correos, comoBytes) {
   // Apps Script puede entregar los datos como base64 sin relleno o ya como bytes
@@ -86,12 +88,12 @@ function gmailFalso(correos, comoBytes) {
         list: () => ({ messages: correos.map((c, i) => ({ id: "m" + i })).reverse() }),
         get: (u, id) => {
           const c = norm(correos[Number(id.slice(1))]);
-          const de = c.de || "Alertas <alertas@banco.example>";
+          const de = c.de || "Alertas <alertas@baccredomatic.com>";
           const partes = [{ mimeType: "text/plain", body: { data: b64(c.texto) } }];
           if (c.pdf) partes.push({ filename: "estado.pdf", mimeType: "application/pdf", body: { attachmentId: "a1" } });
           return { id, internalDate: String(Date.now()), payload: { mimeType: "multipart/mixed", headers: [
             { name: "From", value: de }, { name: "Subject", value: c.asunto || "Aviso" },
-            { name: "Authentication-Results", value: c.auth || "mx.google.com; dkim=pass header.i=@banco.example; spf=pass smtp.mailfrom=banco.example; dmarc=pass" },
+            { name: "Authentication-Results", value: c.auth || AUTH_BAC },
           ], parts: partes } };
         },
         Attachments: { get: () => ({ data: b64("%PDF-1.4 prueba") }) },
@@ -412,8 +414,41 @@ test("correo: remitente que no pasa la verificación no entra", () => {
   env.ctx.Gmail = gmailFalso([{ texto: CORREO_PRF, de: "BAC <alertas@baccredomatic.com>", auth: "mx.google.com; spf=fail smtp.mailfrom=otro.example; dmarc=fail" }]);
   const r = env.ctx.revisarCorreo();
   assert.equal(r.sinVerificar, 1); assert.equal(r.compras, 0);
-  env.ctx.Gmail.correos.push({ texto: CORREO_ALERTAS, de: "BAC <alertas@baccredomatic.com>", auth: "mx.google.com; dkim=pass header.i=@baccredomatic.com; spf=pass smtp.mailfrom=baccredomatic.com; dmarc=pass" });
+  env.ctx.Gmail.correos.push({ texto: CORREO_ALERTAS, de: "BAC <alertas@baccredomatic.com>", auth: AUTH_BAC });
   assert.equal(env.ctx.revisarCorreo().compras, 1);
+});
+
+test("verificarRemitente: solo bancos de la lista, con el DMARC que escribe Gmail", () => {
+  const { ctx } = entorno(CLAVES);
+  const v = (de, ...auth) => ctx.verificarRemitente_([{ name: "From", value: de }].concat(auth.map(a => ({ name: "Authentication-Results", value: a }))), ctx.BANCOS);
+  // correo legítimo (también desde un subdominio del banco)
+  assert.equal(v("BAC Credomatic <alertas@baccredomatic.com>", AUTH_BAC).verificado, true);
+  assert.equal(v("alertas@notificaciones.baccredomatic.com", "mx.google.com; dmarc=pass (p=REJECT) header.from=notificaciones.baccredomatic.com").verificado, true);
+  // nombre visible con el dominio del banco, pero la dirección real es ajena
+  const falso = v('"alertas@baccredomatic.com" <x@otro.example>', "mx.google.com; dmarc=pass (p=NONE) header.from=otro.example");
+  assert.equal(falso.verificado, false); assert.equal(falso.dominio, "otro.example");
+  // un segundo Authentication-Results inventado por quien envía no cuenta
+  assert.equal(v("BAC <alertas@baccredomatic.com>", "mx.google.com; spf=fail smtp.mailfrom=otro.example; dmarc=fail (p=REJECT) header.from=baccredomatic.com", AUTH_BAC).verificado, false);
+  // un encabezado que no es de Gmail tampoco cuenta, aunque esté primero
+  assert.equal(v("BAC <alertas@baccredomatic.com>", "otro.servidor; dmarc=pass header.from=baccredomatic.com").verificado, false);
+  // dmarc=pass de otro dominio no sirve
+  assert.equal(v("BAC <alertas@baccredomatic.com>", "mx.google.com; dmarc=pass (p=NONE) header.from=otro.example").verificado, false);
+  // un dominio que solo se parece al del banco
+  assert.equal(v("BAC <alertas@falsobaccredomatic.com>", "mx.google.com; dmarc=pass header.from=falsobaccredomatic.com").verificado, false);
+  assert.equal(v("BAC <alertas@baccredomatic.com.otro.example>", "mx.google.com; dmarc=pass header.from=baccredomatic.com.otro.example").verificado, false);
+  // sin DMARC no entra
+  assert.equal(v("BAC <alertas@baccredomatic.com>", "mx.google.com; dkim=pass header.i=@baccredomatic.com; spf=pass smtp.mailfrom=baccredomatic.com").verificado, false);
+});
+
+test("correo: el remitente falso no deja cargos, estados ni PDF", () => {
+  const env = entorno(CLAVES); env.P.CORREOS_VISTOS = "[]";
+  env.ctx.Gmail = gmailFalso([
+    { texto: CORREO_PRF, de: '"alertas@baccredomatic.com" <x@otro.example>', auth: "mx.google.com; dmarc=pass header.from=otro.example" },
+    { texto: CORREO_ESTADO, asunto: "Estado de Cuenta", pdf: true, de: '"BAC" <x@otro.example>', auth: "mx.google.com; dmarc=pass header.from=otro.example" },
+  ]);
+  const r = env.ctx.revisarCorreo();
+  assert.equal(r.sinVerificar, 2); assert.equal(r.compras, 0); assert.equal(r.estados, 0);
+  assert.equal(env.ctx.Drive.archivos.filter(f => f.mimeType === "application/pdf").length, 0);
 });
 
 test("estado de cuenta con PDF: se guarda en Drive una sola vez", () => {
@@ -421,7 +456,7 @@ test("estado de cuenta con PDF: se guarda en Drive una sola vez", () => {
   env.ctx.Gmail = gmailFalso([{ texto: CORREO_ESTADO, asunto: "Estado de Cuenta Digital", pdf: true }]);
   assert.equal(env.ctx.revisarCorreo().estados, 1);
   const pdfs = env.ctx.Drive.archivos.filter(f => f.mimeType === "application/pdf");
-  assert.equal(pdfs.length, 1); assert.equal(pdfs[0].name, "2030-11-08 ····0004.pdf");
+  assert.equal(pdfs.length, 1); assert.equal(pdfs[0].name, "2030-11-08 BAC ····0004.pdf");
   const est = env.post({ accion: "leer", clave: CLAVES.CLAVE_APP }).estadosCuenta;
   assert.match(est[0].archivo, /^https:\/\/drive\.google\.com\//);
   env.ctx.estadosAnteriores(90);
