@@ -4,6 +4,8 @@
  */
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+// Números del plan que van al HTML: solo dígitos (lo que no sea número queda vacío)
+const nro = v => { const x = Number(v); return Number.isFinite(x) ? String(x) : ""; };
 const fmt = n => { n = ENG.r2(n || 0); const neg = n < -0.004; return (neg ? "−" : "") + "$" + Math.abs(n).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 }); };
 const money = n => { const s = fmt(n); const m = s.match(/^(−?)\$([\d,]+)\.(\d\d)$/); return m ? `${m[1]}<span class="cur">$</span>${m[2]}<span class="dec">.${m[3]}</span>` : s; };
 const fmt0 = n => { const r = Math.round(n || 0); return (r < 0 ? "−" : "") + "$" + Math.abs(r).toLocaleString("en-US"); };
@@ -203,7 +205,7 @@ function fechasRaw(k) {
   const [y, m] = k.split("-").map(Number); const n = m === 12 ? 1 : m + 1;
   return (S.fechas || []).filter(f => (f.m === m && f.d >= 20) || (f.m === n && f.d < 20)).sort((a, b) => ((a.m - m + 12) % 12) * 40 + a.d - (((b.m - m + 12) % 12) * 40 + b.d));
 }
-function fechasDe(k) { return fechasRaw(k).map(f => `${f.name} · ${f.d} ${MESC[f.m - 1]}${f.amount ? ` · ${fmt0(f.amount)}` : ""}`); }
+function fechasDe(k) { return fechasRaw(k).map(f => `${f.name} · ${nro(f.d)} ${MESC[f.m - 1]}${f.amount ? ` · ${fmt0(f.amount)}` : ""}`); }
 function toast(t, withUndo) {
   const el = $("#toast"); el.innerHTML = ""; const sp = document.createElement("span"); sp.textContent = t; el.appendChild(sp);
   if (withUndo && undoStack.length) { const b = document.createElement("button"); b.textContent = "Deshacer"; b.className = "tbtn"; b.onclick = () => { el.classList.remove("on"); undo(); }; el.appendChild(b); el.style.pointerEvents = "auto"; } else el.style.pointerEvents = "none";
@@ -585,7 +587,7 @@ function dlgClasificar(id) {
     });
 }
 
-const VERSION_APP = "2026-11-21 · 10";
+const VERSION_APP = "2026-11-22 · 11";
 
 // ---------- lo que entra y a dónde va ----------
 // Cada entrada de dinero con los pagos que se hacen con ese dinero debajo.
@@ -749,7 +751,7 @@ function vMes() {
   }
   if (nextG) { const d = dueTxt(nextG.due), xs = nextG.pend.filter(x => dueDe(x) && dueAbs(k, dueDe(x)).getTime() === nextG.due.getTime()), uno = xs.length === 1;
     B.next = `<div class="nextup ${d.c}"><span>Próximo pago</span><b>${esc(uno ? xs[0].name : nextG.label + " · " + xs.length + " pagos")}</b><em>${d.t}</em><strong class="num">${fmt(xs.reduce((a, x) => a + x.amount, 0))}</strong></div>`; }
-  B.chips = fechas.length ? `<div class="chips">${fechas.map(f => `<span class="chip">${ms("cake")}${esc(f.name)} · ${f.d} ${MESC[f.m - 1]}${f.amount ? ` · ${fmt0(f.amount)}` : ""}</span>`).join("")}</div>` : "";
+  B.chips = fechas.length ? `<div class="chips">${fechas.map(f => `<span class="chip">${ms("cake")}${esc(f.name)} · ${nro(f.d)} ${MESC[f.m - 1]}${f.amount ? ` · ${fmt0(f.amount)}` : ""}</span>`).join("")}</div>` : "";
   const envs = m.items.filter(x => x.envelope && x.source === "salary");
   B.env = "";
   if (envs.length) {
@@ -885,7 +887,7 @@ function dlgMove(k, toId) {
     });
 }
 function debtLine(d) {
-  if (d.kind === "card") return `${(d.rate * 100).toFixed(1)}% · mínimo ${(d.minPct * 100).toFixed(1)}%${d.extra ? ` + $${d.extra}` : ""}`;
+  if (d.kind === "card") return `${(d.rate * 100).toFixed(1)}% · mínimo ${(d.minPct * 100).toFixed(1)}%${d.extra ? ` + $${nro(d.extra)}` : ""}`;
   if (d.kind === "installment") return `${fmt(d.cuota)}/mes · quedan ${Math.round(d.balance / d.cuota)}`;
   if (d.kind === "loan") return `${d.rate ? (d.rate * 100).toFixed(1) + "% · " : "sin interés · "}cuota ${fmt(d.cuota)}`;
   return d.rate ? `${(d.rate * 100).toFixed(1)}%` : "sin interés";
@@ -911,7 +913,7 @@ function vDeudas() {
       <span class="cc-name">${esc(d.name.replace(/^Tarjeta /, ""))}</span>
       <span class="cc-num">•••• ${esc(d.digits || "····")}</span>
       <span class="cc-bal num">${d.closed || d.balance <= 0.5 ? "En cero" : money(d.balance)}</span>
-      ${d.limit ? `<span class="cc-bar"><span data-w="${pct}"></span></span><span class="cc-lim">${Math.round(pct)}% de ${fmt0(d.limit)}${d.due ? ` · paga el ${d.due}` : ""}</span>` : ""}
+      ${d.limit ? `<span class="cc-bar"><span data-w="${pct}"></span></span><span class="cc-lim">${Math.round(pct)}% de ${fmt0(d.limit)}${d.due ? ` · paga el ${nro(d.due)}` : ""}</span>` : ""}
     </button>`; }).join("")}</div></section>`;
   }
   h += `<section class="block"><h2>Orden de ataque <button class="link" data-act="order-mode"><span class="ms" aria-hidden="true">${orderMode ? "check" : "swap_vert"}</span>${orderMode ? "Listo" : "Cambiar orden"}</button></h2>
@@ -1072,7 +1074,7 @@ function vAjustes() {
   h += `</div></section><div class="actions"><button class="btn" data-act="add-rec"><span class="ms" aria-hidden="true">add</span>Agregar gasto fijo</button></div></div><div class="cb">`;
   h += `<section class="block"><h2>Fechas especiales <small>salen de tus gustos</small></h2><div class="list">`;
   const fs = (S.fechas || []).slice().sort((x, y) => x.m * 40 + x.d - (y.m * 40 + y.d));
-  for (const f of fs) h += `<div class="row"><button class="main" data-act="fecha" data-id="${esc(f.id)}"><span class="t"><span class="gi acc" aria-hidden="true">${ms("cake")}</span>${esc(f.name)}</span><span class="m">${f.d} de ${["enero","febrero","marzo","abril","mayo","junio","julio","agosto","septiembre","octubre","noviembre","diciembre"][f.m - 1]}</span></button><div class="amt num">${f.amount ? fmt0(f.amount) : "—"}</div></div>`;
+  for (const f of fs) h += `<div class="row"><button class="main" data-act="fecha" data-id="${esc(f.id)}"><span class="t"><span class="gi acc" aria-hidden="true">${ms("cake")}</span>${esc(f.name)}</span><span class="m">${nro(f.d)} de ${["enero","febrero","marzo","abril","mayo","junio","julio","agosto","septiembre","octubre","noviembre","diciembre"][f.m - 1]}</span></button><div class="amt num">${f.amount ? fmt0(f.amount) : "—"}</div></div>`;
   h += `</div></section><div class="actions"><button class="btn" data-act="add-fecha"><span class="ms" aria-hidden="true">add</span>Agregar fecha</button></div>`;
   if (cap.sample) h += `<section class="block"><h2>Asistente</h2><div class="list"><div class="row"><button class="main" data-act="ask"><span class="t">${gIco("forum")}Preguntarle a mi plan</span><span class="m">Por ejemplo: ¿me alcanza para $80 este mes?</span></button></div></div></section>`;
   const log = (S.log || []).slice(-30).reverse();
@@ -1199,7 +1201,7 @@ function dlgDetail(d) {
   const instT = inst.reduce((a, x) => a + x.balance, 0);
   const hist = payHistory(d.id); const paidT = hist.filter(h => h.amt > 0).reduce((a, h) => a + h.amt, 0);
   const intFut = p.interestBy[d.id] || 0;
-  const dd = d.due ? `Día ${d.due}` : "—";
+  const dd = d.due ? `Día ${nro(d.due)}` : "—";
   const stat = (lbl, val, sub) => `<div><span>${lbl}</span><b class="num">${val}</b>${sub ? `<em>${sub}</em>` : ""}</div>`;
   const rows = [];
   const add = (l, v) => { if (v != null && v !== "" && v !== false) rows.push(`<div class="dr"><span>${l}</span><b>${v}</b></div>`); };
@@ -1211,9 +1213,9 @@ function dlgDetail(d) {
   if ((d.initial || 0) > d.balance + 0.5) add("Monto original", fmt(d.initial));
   add("Tasa de interés anual", d.rate ? `${(d.rate * 100).toFixed(2)}%` : "Sin interés");
   if (d.rate) add("Interés aproximado al mes", fmt(d.balance * d.rate / 12));
-  if (d.kind === "card") { add("Pago mínimo", `${(d.minPct * 100).toFixed(1)}% del saldo${d.extra ? ` + $${d.extra} extra (tu plan)` : ""}`); if (d.cut) add("Fecha de corte", `Día ${d.cut}`); }
+  if (d.kind === "card") { add("Pago mínimo", `${(d.minPct * 100).toFixed(1)}% del saldo${d.extra ? ` + $${nro(d.extra)} extra (tu plan)` : ""}`); if (d.cut) add("Fecha de corte", `Día ${nro(d.cut)}`); }
   if (d.cuota) add("Cuota mensual", fmt(d.cuota) + (d.portion != null ? ` · ${fmt(d.portion)} bajan el saldo` : ""));
-  if (d.term) add("Plazo", `${d.term} ${d.kind === "installment" ? "cuotas" : "meses"}`);
+  if (d.term) add("Plazo", `${nro(d.term)} ${d.kind === "installment" ? "cuotas" : "meses"}`);
   if (d.ends) add("Termina según contrato", esc(d.ends));
   add("Fecha de pago", dd);
   if (d.kind !== "card") add("Se paga a", esc(d.kind === "installment" ? payLabel(d.payWith) + " (dentro del pago)" : payLabel(d.payWith)));
@@ -1240,7 +1242,7 @@ function dlgDetail(d) {
     </div>
     <div class="sumgrid u-mt14">
       ${stat("Tasa anual", d.rate ? `${(d.rate * 100).toFixed(1)}%` : "0%")}
-      ${stat("Este mes pagas", fmt(thisMonth), d.due ? `vence el ${d.due}` : "")}
+      ${stat("Este mes pagas", fmt(thisMonth), d.due ? `vence el ${nro(d.due)}` : "")}
       ${stat("En cero", d.closed || d.balance <= 0.5 ? "Ya" : zero ? mesCorto(zero.k) : d.kind === "installment" ? `${Math.round(d.balance / (d.cuota || 1))} cuotas` : "—", zero ? `en ${monthsBetween(S.current, zero.k)} meses` : "")}
       ${stat("Intereses por pagar", d.rate ? fmt0(intFut) : "$0", d.rate ? "con tu plan" : "")}
     </div>
