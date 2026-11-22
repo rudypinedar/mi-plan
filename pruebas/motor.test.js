@@ -145,11 +145,19 @@ test("el plan vacío no trae datos personales", () => {
 
 // El motor nuevo debe dar exactamente lo mismo que el de la app original
 const ORIG = motorOriginal(), NOMBRES = privados();
+// Lo que el motor original no tenía se quita antes de comparar: puntuales que funcionan como sobre
+function sinNovedades(s) {
+  for (const o of s.oneoffs || []) { delete o.envelope; delete o.icon; }
+  for (const m of Object.values(s.months || {})) for (const it of m.items || [])
+    if (String(it.recId || "").startsWith("o_")) { delete it.envelope; delete it.spent; delete it.recId; delete it.icon; }
+  return s;
+}
+
 test("mismo resultado que el motor original", { skip: !(ORIG && NOMBRES) && "faltan privado/mi-plan.html o privado/nombres.json" }, () => {
   const limpiar = s => JSON.parse(JSON.stringify(s, (key, v) => (key === "id" || key === "generatedAt" || key === "closed" || key === "at") ? undefined : v));
   const base = planes().filter(p => p.nombre !== "plan de ejemplo").concat(planes()[0]);
   for (const p of base) {
-    const a = p.crear(); if (!a.nombres) a.nombres = NOMBRES; // el original los tenía fijos en el código
+    const a = sinNovedades(p.crear()); if (!a.nombres) a.nombres = NOMBRES; // el original los tenía fijos en el código
     const b = clonar(a);
     for (let i = 0; i < MESES; i++) {
       const nk = ENG.keyAdd(a.current, 1);

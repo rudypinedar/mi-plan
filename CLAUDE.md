@@ -30,7 +30,7 @@ App personal de presupuesto y deudas. **Desde el 18 nov 2026 es la app principal
 - **Gastos:**
   - **Fijos:** recurrentes con calendario de montos por mes.
   - **Sobres (envelopes):** gasolina, súper, gustos, ropa. Se anotan los gastos del día a día contra el sobre.
-  - **Puntuales:** oneoffs con mes.
+  - **Puntuales:** oneoffs con mes. Un puntual puede funcionar como sobre (`envelope: true`), por ejemplo los regalos de Navidad.
 - **Deudas:**
   - `loan`: préstamos con cuota fija y tasa; la cuota se divide en capital e interés más seguros.
   - `card`: tarjetas con corte, fecha de pago, mínimo y tasa.
@@ -39,7 +39,7 @@ App personal de presupuesto y deudas. **Desde el 18 nov 2026 es la app principal
 - **Fondos:** con meta opcional y calendario de aportes. Algunos se guardan en la cuenta de impuestos.
 - **Cascada de abonos (`order`):** lo que sobra cada mes se abona a la siguiente deuda o fondo del orden. Prioridad: deudas con más interés primero. Las deudas con familia pueden tener un tope (`cap`): solo reciben su cuota mientras haya deudas con interés.
 - **Movimientos aparte (`type: "extra"`):** dinero que no sale del salario, como la venta del carro, cargos grandes a tarjeta o abonos especiales.
-- **Cierre de mes:** resumen, pasar pendientes al mes siguiente y mandar el sobrante. No debe dejar el plan trabado (ver `docs/PLAN.md`, pruebas).
+- **Cierre de mes:** resumen, pasar pendientes al mes siguiente y mandar el sobrante. No debe dejar el plan trabado (ver las pruebas). La app usa las funciones del motor (`marcar`, `recalcular`, `cerrarMes`, `reabrirMes`, `iniciarSiguiente`), nunca copias propias.
 - **Proyección:** simula mes a mes hasta quedar sin deudas. Muestra fecha libre, intereses, hitos y la comparación "tu plan vs. pagar solo cuotas".
 
 ## Reglas personales

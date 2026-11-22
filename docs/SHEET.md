@@ -87,7 +87,7 @@ Todas se mandan por `POST` con un JSON en el cuerpo y `Content-Type: text/plain`
 
 ## Instalación (una vez)
 
-Ya está hecha. Así se hizo, por si hay que repetirla:
+Ya está hecha. Las herramientas que se usaron (`herramientas/instalar.js`, `importar.js` y `personalizar.js`) se quitaron del repositorio. Si hay que repetirla, están en el historial de git, en el commit `52f67c4`. Así se hizo:
 
 1. `npx @google/clasp login` con la cuenta personal.
 2. `npx @google/clasp create-script --type sheets --title "Mi plan · datos" --rootDir apps-script` crea el Sheet con su script.
