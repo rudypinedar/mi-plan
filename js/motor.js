@@ -118,6 +118,8 @@
       if (o.auto === "puenteRepay") amount = s.puente || 0;
       if (!amount) continue;
       const it = add({ kind: "oneoff", name: o.name, cat: o.cat, payWith: o.payWith, amount, debtId: o.debtId, note: o.note });
+      // Un puntual puede ser sobre (p. ej. regalos de Navidad): se le anotan las compras
+      if (o.envelope) { it.envelope = true; it.spent = []; it.recId = "o_" + o.id; if (o.icon) it.icon = o.icon; }
       if (o.debtId) proj[o.debtId] -= amount;
     }
     for (const c of (s.carry && s.carry[k]) || []) add({ kind: "carry", name: c.name, cat: c.cat || "Otros", payWith: c.payWith, amount: c.amount, note: "Pendiente del mes anterior" });

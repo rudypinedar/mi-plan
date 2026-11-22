@@ -119,6 +119,25 @@ test("recalcular conserva lo marcado y vuelve a cuadrar", () => {
   assert.deepEqual(problemas(s), []);
 });
 
+test("un puntual marcado como sobre recibe compras, cuadra y las conserva al recalcular", () => {
+  const s = iniciar(planEjemplo()); const k = s.current;
+  s.oneoffs.push({ id: "regalos", month: k, name: "Regalos", cat: "Navidad", payWith: "Débito", amount: 100, envelope: true, icon: "redeem" });
+  const m = ENG.recalcular(s, k);
+  const sobre = m.items.find(i => i.recId === "o_regalos");
+  assert.ok(sobre && sobre.envelope && sobre.kind === "oneoff", "el puntual no quedó como sobre");
+  assert.equal(sobre.icon, "redeem");
+  assert.ok(Math.abs(ENG.totals(m).free) <= 0.01, "el mes no cuadra con el sobre nuevo");
+  ENG.anotarGasto(s, sobre, 38.85, "Regalo", null);
+  const m2 = ENG.recalcular(s, k);
+  const mismo = m2.items.filter(i => i.recId === "o_regalos");
+  assert.equal(mismo.length, 1, "el sobre quedó repetido");
+  assert.equal(ENG.spentOf(mismo[0]), 38.85, "se perdieron las compras del sobre");
+  // Al pasar al otro mes sin ese puntual, el sobre no aparece
+  pagarTodo(s, k); ENG.cerrarMes(s, k, { iniciarSiguiente: true, ahora: FECHA });
+  assert.ok(!s.months[s.current].items.some(i => i.recId === "o_regalos"));
+  assert.deepEqual(problemas(s), []);
+});
+
 test("el plan vacío no trae datos personales", () => {
   const s = ENG.seed();
   assert.deepEqual([s.debts, s.funds, s.recurring, s.oneoffs, s.fechas], [[], [], [], [], []]);
