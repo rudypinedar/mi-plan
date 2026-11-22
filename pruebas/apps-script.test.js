@@ -511,6 +511,17 @@ test("verificarRemitente: solo bancos de la lista, con el DMARC que escribe Gmai
   assert.equal(v("BAC <alertas@baccredomatic.com>", "mx.google.com; dkim=pass header.i=@baccredomatic.com; spf=pass smtp.mailfrom=baccredomatic.com").verificado, false);
 });
 
+test("correosSinReconocer: solo lectura; con todos=true incluye los reconocidos y si pasan la verificación", () => {
+  const env = entorno(CLAVES);
+  env.ctx.Gmail = gmailFalso([CORREO_PRF, CORREO_TRANSFER, { texto: CORREO_ALERTAS, de: '"BAC" <x@otro.example>', auth: "mx.google.com; dmarc=pass header.from=otro.example" }]);
+  const solo = env.post({ accion: "correosSinReconocer", clave: CLAVES.CLAVE_APP, dias: 3 });
+  assert.deepEqual(solo.correos.map(c => c.reconocido), [""]);
+  const t = env.post({ accion: "correosSinReconocer", clave: CLAVES.CLAVE_APP, dias: 3, todos: true }).correos;
+  assert.deepEqual(t.map(c => [c.reconocido, c.verificado]).sort(), [["", true], ["compra", false], ["compra", true]]);
+  assert.equal(env.hojas.por_clasificar, undefined, "no agrega nada");
+  assert.equal(env.post({ accion: "correosSinReconocer", clave: CLAVES.CLAVE_INGRESO }).ok, false, "la clave de ingreso no puede leer");
+});
+
 test("correo: el remitente falso no deja cargos, estados ni PDF", () => {
   const env = entorno(CLAVES); env.P.CORREOS_VISTOS = "[]";
   env.ctx.Gmail = gmailFalso([

@@ -76,7 +76,7 @@ function doPost(e) {
     if (p.accion === 'guardar') return json_(conCandado_(function () { return guardar_(p); }));
     if (p.accion === 'ingresar') return json_(conCandado_(function () { return ingresar_(p); }));
     if (p.accion === 'revisarCorreo') return json_(revisarCorreo());
-    if (p.accion === 'correosSinReconocer') return json_(correosSinReconocer(Number(p.dias) || 3));
+    if (p.accion === 'correosSinReconocer') return json_(correosSinReconocer(Number(p.dias) || 3, p.todos === true));
     if (p.accion === 'activarCorreo') return json_(activarCorreo());
     if (p.accion === 'recordatorios' || p.accion === 'calendario') return json_(sincronizarTareas()); // 'calendario': app vieja en caché
     if (p.accion === 'respaldo') return json_(respaldoDiario());
@@ -317,15 +317,17 @@ function revisarCorreo() {
 
 // Solo lectura: correos de los bancos de los últimos días que no se reconocieron
 // como compra ni como estado de cuenta. Sirve para agregar formatos nuevos.
-function correosSinReconocer(dias) {
+// Con todos = true también lista los reconocidos (para revisar la verificación del remitente).
+function correosSinReconocer(dias, todos) {
   var props = PropertiesService.getScriptProperties();
   var q = String(props.getProperty('BUSQUEDA_CORREO') || BUSQUEDA_CORREO).replace(/\s*newer_than:\S+/, '') + ' newer_than:' + Math.min(Math.max(dias || 3, 1), 30) + 'd';
   var lista = Gmail.Users.Messages.list('me', { q: q, maxResults: 50 }).messages || [];
   var out = [];
   lista.forEach(function (ref) {
     var c = correo_(ref.id);
-    if (interpretar(c.texto).ok || interpretarEstado(c.texto).ok) return;
-    out.push({ fecha: c.fecha.toISOString(), dominio: c.dominio, verificado: c.verificado, texto: limpiarTexto(c.texto, 600) });
+    var reconocido = interpretar(c.texto).ok ? 'compra' : interpretarEstado(c.texto).ok ? 'estado' : '';
+    if (reconocido && !todos) return;
+    out.push({ fecha: c.fecha.toISOString(), dominio: c.dominio, verificado: c.verificado, reconocido: reconocido, texto: limpiarTexto(c.texto, todos ? 120 : 600) });
   });
   return { ok: true, correos: out };
 }
