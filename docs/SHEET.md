@@ -65,7 +65,8 @@ Todas se mandan por `POST` con un JSON en el cuerpo y `Content-Type: text/plain`
   - Drive solo para **los archivos que el propio script crea** (`drive.file`).
   - Sheets solo para **este** Sheet (`spreadsheets.currentonly`).
   - Calendario, para crear y actualizar "Mi plan · pagos".
-- **Correos:** solo se aceptan correos que pasan la verificación del remitente (DMARC, o SPF/DKIM del mismo dominio). Los demás se anotan en `bitacora` y se descartan.
+- **Correos:** solo se aceptan si la dirección real (la de dentro de `<…>`, no el nombre visible) es de un banco de la lista fija `BANCOS` (o un subdominio) y el **primer** `Authentication-Results` que escribe Gmail (`mx.google.com;`) dice `dmarc=pass` con `header.from` igual a ese dominio. Los demás se anotan en `bitacora` y se descartan.
+  - Los correos de banco con monto que no se reconocen se anotan en `bitacora` como "sin reconocer" (sin publicidad), para poder agregar formatos nuevos. La acción `correosSinReconocer` los lista en solo lectura.
 - **Datos del cliente:**
   - `guardar` revisa la forma del plan y no acepta claves que empiecen con `_` ni `constructor`/`prototype`. Escribe primero y después borra lo que sobra, así una falla a medias nunca deja una pestaña vacía.
   - Ninguna celda puede quedar como fórmula: lo que empieza con `= + - @` se guarda con un apóstrofo.
