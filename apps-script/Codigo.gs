@@ -787,10 +787,19 @@ function claveSegura_(k) { return /^[A-Za-z][\w-]{0,60}$/.test(k) && ['construct
 
 function parsear_(v) { try { return JSON.parse(v); } catch (e) { return v; } }
 
-// Parte un texto largo en pedazos que caben en una celda
+// Parte un texto largo en pedazos que caben en una celda. Ningún pedazo después
+// del primero puede empezar con ' = + - @: Sheets tomaría "=..." como fórmula y se
+// comería el apóstrofo inicial, y el JSON quedaría dañado. Por eso el corte se mueve
+// unos caracteres hacia atrás; si no hay dónde cortar, no se guarda.
+var CORTE_MALO = /['=+\-@]/;
 function partir(texto) {
-  var p = []; texto = String(texto);
-  for (var i = 0; i < texto.length; i += TAM_CELDA) p.push(texto.slice(i, i + TAM_CELDA));
+  var p = [], i = 0; texto = String(texto);
+  while (i < texto.length) {
+    var fin = Math.min(i + TAM_CELDA, texto.length), corte = fin;
+    while (corte < texto.length && CORTE_MALO.test(texto.charAt(corte)) && corte > fin - 2000) corte--;
+    if (corte < texto.length && CORTE_MALO.test(texto.charAt(corte))) throw new Error('No se pudo partir el texto sin dañarlo');
+    p.push(texto.slice(i, corte)); i = corte;
+  }
   return p.length ? p : [''];
 }
 

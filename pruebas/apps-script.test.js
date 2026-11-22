@@ -149,6 +149,31 @@ test("un mes enorme se parte en varias celdas y vuelve completo", () => {
   assert.deepEqual(post({ accion: "leer", clave: CLAVES.CLAVE_APP }).plan, JSON.parse(JSON.stringify(s)));
 });
 
+test("partir: ningún trozo empieza con ' = + - @ y juntos vuelven al texto original", () => {
+  const { ctx } = entorno(CLAVES);
+  const T = ctx.TAM_CELDA;
+  for (const malo of ["'", "=", "+", "-", "@", "'=+-@'"]) {
+    const texto = "a".repeat(T - 3) + "xyz" + malo + "b".repeat(T);  // lo malo cae justo en el corte
+    const p = ctx.partir(texto);
+    assert.equal(p.join(""), texto);
+    p.slice(1).forEach(t => assert.doesNotMatch(t, /^['=+\-@]/, `trozo empieza con ${t[0]}`));
+    p.forEach(t => assert.ok(t.length <= T));
+  }
+  assert.throws(() => ctx.partir("'".repeat(T + 5000)), /No se pudo partir/);
+});
+
+test("un apóstrofo justo en el corte vuelve intacto al leer", () => {
+  const { ctx, hojas } = entorno(CLAVES);
+  const T = ctx.TAM_CELDA;
+  const datos = JSON.stringify({ nota: "x".repeat(T - 9) + "'= texto", resto: "y".repeat(T) });
+  assert.equal(datos.indexOf("'"), T, "el apóstrofo no quedó en el corte");
+  ctx.escribirTabla_("meses", [{ mes: "2030-01", cerrado: "", deuda_inicio: "", deuda_cierre: "", datos }]);
+  const fila = hojas.meses.g[1];
+  assert.ok(fila.length > 5, "no se partió en varias celdas");
+  fila.slice(5).forEach(c => assert.doesNotMatch(c, /^['=+\-@]/));
+  assert.equal(ctx.leerTabla_("meses")[0].datos, datos);
+});
+
 test("guardar con versión vieja avisa del conflicto y no pisa", () => {
   const s = iniciar(require("./plan-ejemplo.js")());
   const { post } = entorno(CLAVES);
