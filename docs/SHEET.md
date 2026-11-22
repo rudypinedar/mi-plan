@@ -40,6 +40,8 @@ Todas se mandan por `POST` con un JSON en el cuerpo y `Content-Type: text/plain`
 | `revisarCorreo` | `CLAVE_APP` | — | cuántas compras, estados de cuenta, duplicados e ignorados encontró |
 | `activarCorreo` | `CLAVE_APP` | — | crea (una vez) el disparador que revisa Gmail cada 15 minutos |
 | `cambiarClaveIngreso` | `CLAVE_APP` | `nueva` (24 o más caracteres) | cambia la clave de Atajos y MacroDroid; la anterior deja de servir |
+| `recordatorios` | `CLAVE_APP` | — | actualiza la lista de Google Tasks "Mi plan · pagos" (`tareas`, `nuevas`, `borradas`); también se hace sola una vez al día y después de guardar |
+| `correosSinReconocer` | `CLAVE_APP` | opcional `dias` (1–30) | solo lectura: correos de banco que no se reconocieron como compra ni estado de cuenta |
 | `ingresar` (variante para SMS) | `CLAVE_INGRESO` | `?accion=ingresar&clave=…&origen=sms` en la dirección y el SMS tal cual en el cuerpo (`text/plain`) | igual que `ingresar` |
 
 ## Correo (Gmail)
@@ -65,7 +67,7 @@ Todas se mandan por `POST` con un JSON en el cuerpo y `Content-Type: text/plain`
   - Gmail en **solo lectura** (`gmail.readonly`, con la API de Gmail). El script no puede enviar, borrar ni modificar correos.
   - Drive solo para **los archivos que el propio script crea** (`drive.file`).
   - Sheets solo para **este** Sheet (`spreadsheets.currentonly`).
-  - Calendario, para crear y actualizar "Mi plan · pagos".
+  - Google Tasks (`tasks`), para la lista "Mi plan · pagos". Tasks no tiene un permiso más limitado; el script solo usa la lista que él mismo crea. Ya **no** pide permiso del calendario.
 - **Correos:** solo se aceptan si la dirección real (la de dentro de `<…>`, no el nombre visible) es de un banco de la lista fija `BANCOS` (o un subdominio) y el **primer** `Authentication-Results` que escribe Gmail (`mx.google.com;`) dice `dmarc=pass` con `header.from` igual a ese dominio. Los demás se anotan en `bitacora` y se descartan.
   - Los correos de banco con monto que no se reconocen se anotan en `bitacora` como "sin reconocer" (sin publicidad), para poder agregar formatos nuevos. La acción `correosSinReconocer` los lista en solo lectura.
 - **Datos del cliente:**

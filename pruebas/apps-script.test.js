@@ -40,11 +40,20 @@ function hojaFalsa(nombre) {
   };
 }
 
-function calendarioFalso() {
-  const eventos = [];
-  const cal = { getId: () => "cal1", getEvents: () => eventos.slice().map(e => ({ deleteEvent() { eventos.splice(eventos.indexOf(e), 1); } })),
-    createAllDayEvent: (t, d, o) => { const e = { t, d, o, avisos: [] }; eventos.push(e); return { removeAllReminders() {}, addPopupReminder(m) { e.avisos.push(m); } }; } };
-  return { eventos, Color: { GREEN: "g" }, getCalendarById: () => cal, createCalendar: () => cal };
+// Google Tasks (API avanzada) simulado
+function tareasFalsas() {
+  const listas = {}, tareas = []; let n = 0;
+  return {
+    listas, tareas,
+    Tasklists: { get: id => { if (!listas[id]) throw new Error("Not Found"); return listas[id]; }, insert: l => (listas["L" + ++n] = Object.assign({ id: "L" + n }, l)) },
+    Tasks: {
+      list: (lista, o) => { const todas = tareas.filter(t => t.lista === lista && (o.showCompleted || t.status !== "completed"));
+        const i = Number(o.pageToken || 0), pag = todas.slice(i, i + 2); // páginas chicas para probar pageToken
+        return { items: pag, nextPageToken: i + 2 < todas.length ? String(i + 2) : undefined }; },
+      insert: (t, lista) => { const x = Object.assign({ id: "T" + ++n, status: "needsAction", lista }, t, { due: t.due.slice(0, 10) + "T00:00:00.000Z" }); tareas.push(x); return x; },
+      remove: (lista, id) => { const i = tareas.findIndex(t => t.id === id && t.lista === lista); if (i < 0) throw new Error("Not Found"); tareas.splice(i, 1); },
+    },
+  };
 }
 
 function utilidadesFalsas() {
@@ -112,7 +121,7 @@ function entorno(props = {}) {
     ContentService: { MimeType: { JSON: "json" }, createTextOutput: t => ({ setMimeType: () => ({ texto: t }) }) },
     Utilities: utilidadesFalsas(),
     CacheService: (() => { const c = {}; const cache = { get: k => c[k] || null, put: (k, v) => { c[k] = v; } }; return { getScriptCache: () => cache }; })(),
-    CalendarApp: calendarioFalso(),
+    Tasks: tareasFalsas(),
     Drive: driveFalso(),
     Gmail: gmailFalso([]),
     Logger: { log() {} },
@@ -351,7 +360,7 @@ test("la misma compra por dos correos distintos entra una sola vez", () => {
   assert.equal(r.compras, 1); assert.equal(r.duplicados, 1);
 });
 
-test("calendario: pagos pendientes agrupados y cortes de tarjeta", () => {
+test("recordatorios: pagos pendientes agrupados y cortes de tarjeta", () => {
   const { ctx } = entorno(CLAVES);
   const plan = {
     current: "2030-11", etiquetas: { pagos: { "BANCO A": { nombre: "Tarjeta A" } } },
@@ -368,22 +377,23 @@ test("calendario: pagos pendientes agrupados y cortes de tarjeta", () => {
   const ev = JSON.parse(JSON.stringify(ctx.eventosDelPlan(plan, [], "2030-11-22", 50)));
   const t = ev.map(e => e.fecha + " " + e.titulo);
   assert.deepEqual(t, [
-    "2030-11-25 Pagar Débito · $300.00 · pago del 20",
-    "2030-12-03 Pagar Tarjeta A · $70.00 · pago del 30",
-    "2030-12-08 Corte de Tarjeta A · compras grandes, mejor desde mañana",
-    "2031-01-08 Corte de Tarjeta A · compras grandes, mejor desde mañana",
+    "2030-11-25 Pagar Débito · $300.00 · pago del 20 · vence mañana",
+    "2030-12-03 Pagar Tarjeta A · $70.00 · pago del 30 · vence mañana",
+    "2030-12-08 Hoy corta Tarjeta A · compras grandes, mejor desde mañana",
+    "2031-01-08 Hoy corta Tarjeta A · compras grandes, mejor desde mañana",
   ]);
-  assert.deepEqual(ev[1].avisos, [2340, 900]);
+  // Los pagos avisan el día antes; los cortes, el mismo día
+  assert.deepEqual(ev.map(e => e.recordar), ["2030-11-24", "2030-12-02", "2030-12-08", "2031-01-08"]);
   assert.match(ev[1].detalle, /Cuota 0%: \$20\.00/);
   // Lo que ya pasó no se agenda
   assert.equal(ctx.eventosDelPlan(plan, [], "2030-12-04", 10).filter(e => /Pagar/.test(e.titulo)).length, 0);
   // Sin "cut" usa el día del último estado de cuenta
   plan.debts[0].cut = null; plan.debts[0].digits = "0001";
   const ev2 = ctx.eventosDelPlan(plan, [{ tarjeta: "0001", fecha_corte: "2030-10-21" }], "2030-11-22", 30);
-  assert.ok(ev2.some(e => e.fecha === "2030-12-21" && /Corte/.test(e.titulo)));
+  assert.ok(ev2.some(e => e.fecha === "2030-12-21" && /Hoy corta/.test(e.titulo)));
 });
 
-test("calendario: lo que no trae día usa el de su destino o el de su tarjeta", () => {
+test("recordatorios: lo que no trae día usa el de su destino o el de su tarjeta", () => {
   const { ctx } = entorno(CLAVES);
   const plan = {
     current: "2030-11", diasPago: { pagos: { FAMILIA: 20 }, nombres: [["^Escuela", 8]] }, fuentesPref: { tel: "20" },
@@ -396,7 +406,31 @@ test("calendario: lo que no trae día usa el de su destino o el de su tarjeta", 
     ] } },
   };
   const t = JSON.parse(JSON.stringify(ctx.eventosDelPlan(plan, [], "2030-11-20", 40))).filter(e => /Pagar/.test(e.titulo)).map(e => e.fecha + " " + e.titulo);
-  assert.deepEqual(t, ["2030-11-20 Pagar FAMILIA · $150.00 · pago del 20", "2030-12-08 Pagar Débito · $90.00 · pago del 30", "2030-12-16 Pagar BANCO A · $23.00 · pago del 20"]);
+  assert.deepEqual(t, ["2030-11-20 Pagar FAMILIA · $150.00 · pago del 20 · vence hoy", "2030-12-08 Pagar Débito · $90.00 · pago del 30 · vence mañana", "2030-12-16 Pagar BANCO A · $23.00 · pago del 20 · vence mañana"]);
+});
+
+test("recordatorios en Google Tasks: crea, deja lo igual, borra lo que ya no va y respeta lo completado", () => {
+  const { ctx } = entorno(CLAVES);
+  const T = ctx.Tasks;
+  const lista = ctx.listaTareas_();
+  assert.equal(T.listas[lista].title, "Mi plan · pagos");
+  assert.equal(ctx.listaTareas_(), lista, "reusa la misma lista");
+  const ev = (titulo, recordar) => ({ titulo, recordar, detalle: "d" });
+  let r = ctx.aplicarTareas_(lista, [ev("A", "2030-11-24"), ev("B", "2030-12-02"), ev("C", "2030-12-08")]);
+  assert.equal(r.nuevas, 3);
+  assert.deepEqual(T.tareas.map(t => t.title + " " + t.due.slice(0, 10)), ["A 2030-11-24", "B 2030-12-02", "C 2030-12-08"]);
+  const idA = T.tareas[0].id;
+  T.tareas[1].status = "completed";                        // Rudy completó B en el teléfono
+  T.tareas.push({ id: "X", lista: "otra", title: "De otra lista", status: "needsAction", due: "2030-11-24T00:00:00.000Z" });
+  r = ctx.aplicarTareas_(lista, [ev("A", "2030-11-24"), ev("B", "2030-12-02"), ev("D", "2030-12-09")]);
+  assert.deepEqual([r.nuevas, r.borradas], [1, 1], "crea D y borra C");
+  assert.equal(T.tareas.find(t => t.title === "A").id, idA, "A no se borró ni se volvió a crear (no repite el aviso)");
+  assert.equal(T.tareas.filter(t => t.title === "B").length, 1, "B completada no se vuelve a crear");
+  assert.ok(T.tareas.some(t => t.id === "X"), "no toca otras listas");
+  assert.deepEqual(T.tareas.filter(t => t.lista === lista).map(t => t.title).sort(), ["A", "B", "D"]);
+  // Si borraron la lista, se crea otra
+  delete T.listas[lista];
+  assert.notEqual(ctx.listaTareas_(), lista);
 });
 
 test("diasPago: los patrones largos o que no son texto se ignoran", () => {
@@ -418,17 +452,19 @@ test("fechaDePago: el mes del plan va del 20 al 19", () => {
   assert.equal(ctx.fechaDePago_("2031-01", 30), "2031-01-30");
 });
 
-test("guardar deja el calendario pendiente y la revisión de correo lo actualiza", () => {
+test("guardar deja los recordatorios pendientes y la revisión de correo los actualiza", () => {
   const env = entorno(CLAVES);
   const s = iniciar(require("./plan-ejemplo.js")());
   env.post({ accion: "guardar", clave: CLAVES.CLAVE_APP, version: 0, plan: s });
-  assert.equal(env.P.CALENDARIO_PENDIENTE, "1");
+  assert.equal(env.P.TAREAS_PENDIENTE, "1");
   env.P.CORREOS_VISTOS = "[]";
   env.ctx.Gmail = gmailFalso([]);
   const r = env.ctx.revisarCorreo();
-  assert.ok(r.calendario && r.calendario.ok, "no actualizó el calendario");
-  assert.equal(env.P.CALENDARIO_PENDIENTE, "0");
-  assert.equal(env.ctx.CalendarApp.eventos.length, r.calendario.eventos);
+  assert.ok(r.recordatorios && r.recordatorios.ok, "no actualizó los recordatorios");
+  assert.equal(env.P.TAREAS_PENDIENTE, "0");
+  assert.equal(env.ctx.Tasks.tareas.length, r.recordatorios.tareas);
+  // La app puede pedirlos a mano (también con el nombre viejo, por si tiene la versión anterior en caché)
+  for (const accion of ["recordatorios", "calendario"]) assert.equal(env.post({ accion, clave: CLAVES.CLAVE_APP }).ok, true);
 });
 
 test("interpretar: Credisiman y Cuscatlán por correo", () => {

@@ -6,7 +6,7 @@
     "https://www.googleapis.com/auth/spreadsheets.currentonly",
     "https://www.googleapis.com/auth/gmail.readonly",
     "https://www.googleapis.com/auth/script.scriptapp",
-    "https://www.googleapis.com/auth/calendar",
+    "https://www.googleapis.com/auth/tasks",
     "https://www.googleapis.com/auth/drive.file"
   ],
   "webapp": {
@@ -24,6 +24,11 @@
         "userSymbol": "Drive",
         "serviceId": "drive",
         "version": "v3"
+      },
+      {
+        "userSymbol": "Tasks",
+        "serviceId": "tasks",
+        "version": "v1"
       }
     ]
   }

@@ -567,7 +567,7 @@ function dlgClasificar(id) {
     });
 }
 
-const VERSION_APP = "2026-11-22 · 12";
+const VERSION_APP = "2026-11-22 · 13";
 
 // ---------- lo que entra y a dónde va ----------
 // Cada entrada de dinero con los pagos que se hacen con ese dinero debajo.
@@ -1055,7 +1055,7 @@ function vAjustes() {
   h += instalarHTML();
   h += `<p class="small muted version-app">Versión de la app: ${VERSION_APP}</p>`;
   h += `<section class="block"><h2>Tus datos</h2><div class="list"><div class="row"><div class="main"><span class="t">${gIco(Datos.estado().icono)}${esc(Datos.estado().titulo)}</span><span class="m">${esc(Datos.estado().detalle)}</span></div></div></div>
-    <div class="actions"><button class="btn primary" data-act="sync-now"><span class="ms" aria-hidden="true">sync</span>Sincronizar ahora</button><button class="btn" data-act="calendario"><span class="ms" aria-hidden="true">event</span>Actualizar calendario</button><button class="btn" data-act="xlsx"><span class="ms" aria-hidden="true">download</span>Descargar Excel</button><button class="btn" data-act="export"><span class="ms" aria-hidden="true">content_copy</span>Copiar respaldo</button><button class="btn danger" data-act="desconectar"><span class="ms" aria-hidden="true">logout</span>Desconectar este teléfono</button></div></section></div></div>`;
+    <div class="actions"><button class="btn primary" data-act="sync-now"><span class="ms" aria-hidden="true">sync</span>Sincronizar ahora</button><button class="btn" data-act="recordatorios"><span class="ms" aria-hidden="true">notifications</span>Actualizar recordatorios</button><button class="btn" data-act="xlsx"><span class="ms" aria-hidden="true">download</span>Descargar Excel</button><button class="btn" data-act="export"><span class="ms" aria-hidden="true">content_copy</span>Copiar respaldo</button><button class="btn danger" data-act="desconectar"><span class="ms" aria-hidden="true">logout</span>Desconectar este teléfono</button></div></section></div></div>`;
   return h;
 }
 
@@ -1428,7 +1428,7 @@ document.addEventListener("click", e => {
     case "candado-bloquear": Candado.listo().then(() => location.reload()); break;
     case "candado-desactivar": confirmDlg("Desactivar el bloqueo", "La app ya no pedirá huella ni código, y tus datos en este teléfono quedarán sin cifrar.", "Desactivar", async () => { await Candado.desactivar(); render(); toast("Bloqueo desactivado"); }, true); break;
     case "instalar": if (promptInstalar) { promptInstalar.prompt(); promptInstalar.userChoice.finally(() => { promptInstalar = null; render(); }); } break;
-    case "calendario": toast("Actualizando tu calendario…"); Datos.accion("calendario").then(r => toast(r.ok ? `Listo: ${r.eventos} ${r.eventos === 1 ? "evento" : "eventos"} en "Mi plan · pagos"` : (r.error || "No se pudo actualizar"))).catch(() => toast("Sin señal: inténtalo después")); break;
+    case "recordatorios": toast("Actualizando tus recordatorios…"); Datos.accion("recordatorios").then(r => toast(r.ok ? `Listo: ${r.tareas} ${r.tareas === 1 ? "recordatorio" : "recordatorios"} en Google Tasks ("Mi plan · pagos")` : (r.error || "No se pudo actualizar"))).catch(() => toast("Sin señal: inténtalo después")); break;
     case "desconectar": confirmDlg("Desconectar este teléfono", "Se borra de este teléfono la copia de tu plan y la clave. Tus datos siguen seguros en tu Google Sheet.", "Desconectar", () => { Datos.desconectar(); location.reload(); }, true); break;
   }
 });

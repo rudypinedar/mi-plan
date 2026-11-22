@@ -75,4 +75,4 @@ Desde ahí la app pide la huella al abrirse, y tus datos en el teléfono quedan 
 
 ## 4. Pendiente
 
-- **Notificaciones** (Fase 5): en Android funcionan incluso sin instalar la app. Por ahora los recordatorios de pago llegan por el calendario "Mi plan · pagos".
+- **Notificaciones** (Fase 5): en Android funcionan incluso sin instalar la app. Por ahora los recordatorios de pagos y cortes llegan por **Google Tasks**, en la lista "Mi plan · pagos": avisan a las 9 a. m. (los pagos, el día antes; los cortes, ese día).

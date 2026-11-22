@@ -13,7 +13,7 @@
  *   { accion: "ingresar", clave, texto, origen? }
  *   { accion: "revisarCorreo", clave }   revisa Gmail ahora
  *   { accion: "activarCorreo", clave }   revisa Gmail cada 15 minutos
- *   { accion: "calendario", clave }      actualiza el calendario "Mi plan · pagos"
+ *   { accion: "recordatorios", clave }   actualiza la lista de Google Tasks "Mi plan · pagos"
  *   { accion: "estadosAnteriores", clave, dias }   guarda los estados de cuenta viejos y sus PDF
  *   { accion: "cambiarClaveIngreso", clave, nueva }   (solo con CLAVE_APP)
  *   { accion: "instalar", token, claveApp, claveIngreso }
@@ -78,7 +78,7 @@ function doPost(e) {
     if (p.accion === 'revisarCorreo') return json_(revisarCorreo());
     if (p.accion === 'correosSinReconocer') return json_(correosSinReconocer(Number(p.dias) || 3));
     if (p.accion === 'activarCorreo') return json_(activarCorreo());
-    if (p.accion === 'calendario') return json_(sincronizarCalendario());
+    if (p.accion === 'recordatorios' || p.accion === 'calendario') return json_(sincronizarTareas()); // 'calendario': app vieja en caché
     if (p.accion === 'respaldo') return json_(respaldoDiario());
     if (p.accion === 'cambiarClaveIngreso') return json_(cambiarClaveIngreso_(p));
     if (p.accion === 'estadosAnteriores') return json_(estadosAnteriores(Number(p.dias) || 90));
@@ -195,7 +195,7 @@ function guardar_(p) {
   escribirTabla_('config', t.config); // config al final: si algo falla antes, la versión no cambia
 
   if (p.clasificados && p.clasificados.length) marcarClasificados_(p.clasificados);
-  PropertiesService.getScriptProperties().setProperty('CALENDARIO_PENDIENTE', '1');
+  PropertiesService.getScriptProperties().setProperty('TAREAS_PENDIENTE', '1');
   anotar_('app', 'guardar', 'Versión ' + nueva);
   return { ok: true, version: nueva, actualizado: ahora };
 }
@@ -302,14 +302,14 @@ function revisarCorreo() {
     props.setProperty('CORREOS_VISTOS', JSON.stringify(vistos.slice(-MAX_VISTOS)));
     props.setProperty('CORREO_ULTIMA', new Date().toISOString());
     if (r.compras || r.estados) anotar_('correo', 'revisar', JSON.stringify(r));
-    if (r.estados) props.setProperty('CALENDARIO_PENDIENTE', '1');
-    // El calendario se actualiza si hubo cambios o una vez al día
+    if (r.estados) props.setProperty('TAREAS_PENDIENTE', '1');
+    // Los recordatorios se actualizan si hubo cambios o una vez al día
     var hoy = Utilities.formatDate(new Date(), 'America/El_Salvador', 'yyyy-MM-dd');
     if (props.getProperty('RESPALDO_DIA') !== hoy) {
       try { r.respaldo = respaldoDiario(); } catch (err) { anotar_('respaldo', 'error', String(err && err.message || err)); }
     }
-    if (props.getProperty('CALENDARIO_PENDIENTE') === '1' || props.getProperty('CALENDARIO_DIA') !== hoy) {
-      try { r.calendario = sincronizarCalendario(); } catch (err) { anotar_('calendario', 'error', String(err && err.message || err)); }
+    if (props.getProperty('TAREAS_PENDIENTE') === '1' || props.getProperty('TAREAS_DIA') !== hoy) {
+      try { r.recordatorios = sincronizarTareas(); } catch (err) { anotar_('recordatorios', 'error', String(err && err.message || err)); }
     }
     return r;
   } finally { lock.releaseLock(); }
@@ -461,7 +461,7 @@ function estadosAnteriores(dias) {
     var c = correo_(ref.id);
     if (c.verificado && procesarEstado_(c)) n++;
   });
-  PropertiesService.getScriptProperties().setProperty('CALENDARIO_PENDIENTE', '1');
+  PropertiesService.getScriptProperties().setProperty('TAREAS_PENDIENTE', '1');
   return { ok: true, estados: n };
 }
 
@@ -496,45 +496,58 @@ function respaldoDiario() {
   return { ok: true, archivo: nombre, borrados: viejos.length };
 }
 
-// ---------------------------------------------------------------- calendario
+// ---------------------------------------------------------------- recordatorios (Google Tasks)
 
-var CALENDARIO = 'Mi plan · pagos';
-var DIAS_CALENDARIO = 50;
+var LISTA_TAREAS = 'Mi plan · pagos';
+var DIAS_RECORDATORIOS = 50;
 
-// Borra y vuelve a crear los eventos de los próximos días en el calendario
-// "Mi plan · pagos" (solo ese calendario; el personal no se toca).
-function sincronizarCalendario() {
+// Pone los recordatorios de pagos y cortes en la lista de Google Tasks "Mi plan · pagos"
+// (solo esa lista; las demás no se tocan). Las tareas con fecha avisan a las 9 a. m. de ese día.
+// Solo cambia lo necesario: deja las que siguen igual (así no se repiten los avisos),
+// borra las pendientes que ya no van y crea las nuevas. Las que Rudy completó no se vuelven a crear.
+function sincronizarTareas() {
   var tablas = {}; ['config', 'deudas', 'fondos', 'recurrentes', 'puntuales', 'fechas', 'meses'].forEach(function (n) { tablas[n] = leerTabla_(n); });
   var plan = filasAPlan(tablas).plan;
   var hoy = Utilities.formatDate(new Date(), 'America/El_Salvador', 'yyyy-MM-dd');
-  var eventos = eventosDelPlan(plan, leerTabla_('estados_cuenta'), hoy, DIAS_CALENDARIO);
-  var cal = calendario_();
-  var desde = new Date(hoy + 'T00:00:00'), hasta = new Date(desde.getTime() + (DIAS_CALENDARIO + 1) * 86400000);
-  cal.getEvents(desde, hasta).forEach(function (ev) { ev.deleteEvent(); });
-  eventos.forEach(function (e) {
-    var f = e.fecha.split('-').map(Number);
-    var ev = cal.createAllDayEvent(e.titulo, new Date(f[0], f[1] - 1, f[2]), { description: e.detalle });
-    ev.removeAllReminders();
-    (e.avisos || []).forEach(function (min) { ev.addPopupReminder(min); });
+  var r = aplicarTareas_(listaTareas_(), eventosDelPlan(plan, leerTabla_('estados_cuenta'), hoy, DIAS_RECORDATORIOS));
+  PropertiesService.getScriptProperties().setProperties({ TAREAS_PENDIENTE: '0', TAREAS_DIA: hoy });
+  return { ok: true, tareas: r.total, nuevas: r.nuevas, borradas: r.borradas };
+}
+
+// Compara lo que hay en la lista con lo que debe haber y aplica la diferencia
+function aplicarTareas_(lista, eventos) {
+  var clave = function (titulo, fecha) { return titulo + '|' + String(fecha || '').slice(0, 10); };
+  var actuales = [], token;
+  do {
+    var pag = Tasks.Tasks.list(lista, { showCompleted: true, showHidden: true, maxResults: 100, pageToken: token });
+    actuales = actuales.concat(pag.items || []); token = pag.nextPageToken;
+  } while (token);
+  var quiero = {}; eventos.forEach(function (e) { quiero[clave(e.titulo, e.recordar)] = e; });
+  var hay = {}, borradas = 0;
+  actuales.forEach(function (t) {
+    var k = clave(t.title, t.due);
+    if (t.status === 'completed' || (quiero[k] && !hay[k])) { hay[k] = true; return; }
+    Tasks.Tasks.remove(lista, t.id); borradas++;
   });
-  var props = PropertiesService.getScriptProperties();
-  props.setProperties({ CALENDARIO_PENDIENTE: '0', CALENDARIO_DIA: hoy });
-  return { ok: true, eventos: eventos.length };
+  var nuevas = 0;
+  eventos.forEach(function (e) {
+    var k = clave(e.titulo, e.recordar); if (hay[k]) return; hay[k] = true;
+    Tasks.Tasks.insert({ title: e.titulo, notes: e.detalle, due: e.recordar + 'T00:00:00.000Z' }, lista); nuevas++;
+  });
+  return { total: eventos.length, nuevas: nuevas, borradas: borradas };
 }
 
-function calendario_() {
-  var props = PropertiesService.getScriptProperties(), id = props.getProperty('CALENDARIO_ID');
-  var cal = id ? CalendarApp.getCalendarById(id) : null;
-  if (!cal) {
-    cal = CalendarApp.createCalendar(CALENDARIO, { color: CalendarApp.Color.GREEN, summary: 'Pagos y cortes de tarjeta de Mi plan. Se actualiza solo.' });
-    props.setProperty('CALENDARIO_ID', cal.getId());
-  }
-  return cal;
+function listaTareas_() {
+  var props = PropertiesService.getScriptProperties(), id = props.getProperty('TAREAS_LISTA_ID');
+  if (id) { try { if (Tasks.Tasklists.get(id)) return id; } catch (_) { /* la borraron: se crea otra */ } }
+  id = Tasks.Tasklists.insert({ title: LISTA_TAREAS }).id;
+  props.setProperty('TAREAS_LISTA_ID', id);
+  return id;
 }
 
-// Función pura (se prueba en Node): qué eventos debe tener el calendario.
-// - Un evento por cada forma de pago y fecha con pagos pendientes. Avisos 2 días y 1 día antes (9 a. m.).
-// - Un evento en cada fecha de corte de las tarjetas con saldo: "compras grandes, mejor desde mañana".
+// Función pura (se prueba en Node): qué recordatorios debe haber. "recordar" es el día en que avisa.
+// - Uno por cada forma de pago y fecha con pagos pendientes: avisa el día antes (o el mismo día si ya es hoy).
+// - Uno en cada fecha de corte de las tarjetas con saldo: "compras grandes, mejor desde mañana".
 function eventosDelPlan(plan, estados, hoy, dias) {
   var fin = sumarDias_(hoy, dias), out = [];
   var r2 = function (x) { return Math.round((x + 1e-9) * 100) / 100; };
@@ -558,8 +571,9 @@ function eventosDelPlan(plan, estados, hoy, dias) {
     var g = grupos[c], total = g.items.reduce(function (a, i) { return a + i.amount; }, 0);
     var quien = g.pw ? etq(g.pw) : g.items[0].name;
     var fs = Object.keys(g.fuentes);
-    out.push({ fecha: g.fecha, titulo: 'Pagar ' + quien + ' · ' + usd(total) + (fs.length === 1 ? ' · pago del ' + fs[0] : ''),
-      detalle: g.items.map(function (i) { return '• ' + i.name + ': ' + usd(i.amount); }).join('\n') + '\n\nMárcalo como pagado en Mi plan.', avisos: [2340, 900] });
+    var recordar = sumarDias_(g.fecha, -1); if (recordar < hoy) recordar = hoy;
+    out.push({ fecha: g.fecha, recordar: recordar, titulo: 'Pagar ' + quien + ' · ' + usd(total) + (fs.length === 1 ? ' · pago del ' + fs[0] : '') + ' · vence ' + (recordar === g.fecha ? 'hoy' : 'mañana'),
+      detalle: g.items.map(function (i) { return '• ' + i.name + ': ' + usd(i.amount); }).join('\n') + '\n\nMárcalo como pagado en Mi plan.' });
   });
   // Cortes de tarjeta: día de corte del plan (d.cut) o el del último estado de cuenta
   (plan.debts || []).forEach(function (d) {
@@ -572,8 +586,8 @@ function eventosDelPlan(plan, estados, hoy, dias) {
     if (!dia) return;
     var f = proximoDia_(hoy, dia);
     while (f <= fin) {
-      out.push({ fecha: f, titulo: 'Corte de ' + d.name + ' · compras grandes, mejor desde mañana',
-        detalle: 'Lo que compres desde mañana entra en el siguiente estado de cuenta: lo pagas más tarde y sin intereses.', avisos: [900] });
+      out.push({ fecha: f, recordar: f, titulo: 'Hoy corta ' + d.name + ' · compras grandes, mejor desde mañana',
+        detalle: 'Lo que compres desde mañana entra en el siguiente estado de cuenta: lo pagas más tarde y sin intereses.' });
       f = proximoDia_(sumarDias_(f, 1), dia);
     }
   });
@@ -628,9 +642,9 @@ function proximoDia_(desde, dia) {
 function autorizar() {
   Gmail.Users.getProfile('me');
   ScriptApp.getProjectTriggers();
-  calendario_();
+  listaTareas_();
   carpetaEstados_();
-  Logger.log('Listo: permisos aceptados (Gmail solo lectura, calendario y Drive).');
+  Logger.log('Listo: permisos aceptados (Gmail solo lectura, Google Tasks y Drive).');
 }
 
 // Lee avisos de compra de los bancos. Devuelve
