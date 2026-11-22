@@ -24,3 +24,13 @@ test("app.js: nro() deja pasar números y vacía lo demás", () => {
   assert.equal(nro('16"><img src=x onerror=alert(1)>'), "");
   assert.equal(nro(null), "0"); assert.equal(nro(undefined), ""); assert.equal(nro({}), "");
 });
+
+// Las pruebas obligatorias del cierre (CLAUDE.md) revisan el motor: la app tiene que
+// usar esas mismas funciones y no copias propias.
+test("app.js: marcar, recalcular, cerrar, reabrir e iniciar mes usan el motor", () => {
+  for (const f of ["ENG.marcar(", "ENG.recalcular(", "ENG.resumenCierre(", "ENG.cerrarMes(", "ENG.reabrirMes(", "ENG.iniciarSiguiente("])
+    assert.ok(APP.includes(f), `app.js no usa ${f}`);
+  assert.ok(!/delete m\.closed/.test(APP), "reabre el mes por su cuenta");
+  assert.ok(!/S\.carryIncome\s*=/.test(APP), "manda el sobrante por su cuenta");
+  assert.ok(!/it\.paid = true; it\.paidAmount = it\.amount; it\.paidAt/.test(APP), "marca pagado por su cuenta");
+});

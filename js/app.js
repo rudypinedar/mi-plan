@@ -199,13 +199,11 @@ async function boot() {
 if ("serviceWorker" in navigator && location.protocol === "https:") navigator.serviceWorker.register("sw.js").catch(() => {});
 // ---------- utilidades de mes ----------
 const monthKeys = () => Object.keys(S.months).sort();
-function period(k) { const [y, m] = k.split("-").map(Number); const n = m === 12 ? 1 : m + 1; return `Pagos del 20 ${MESC[m - 1]} al 19 ${MESC[n - 1]}`; }
 function dueDate(k, day) { if (!day) return null; const [y, m] = k.split("-").map(Number); return day >= 20 ? { m, d: day } : { m: m === 12 ? 1 : m + 1, d: day }; }
 function fechasRaw(k) {
   const [y, m] = k.split("-").map(Number); const n = m === 12 ? 1 : m + 1;
   return (S.fechas || []).filter(f => (f.m === m && f.d >= 20) || (f.m === n && f.d < 20)).sort((a, b) => ((a.m - m + 12) % 12) * 40 + a.d - (((b.m - m + 12) % 12) * 40 + b.d));
 }
-function fechasDe(k) { return fechasRaw(k).map(f => `${f.name} · ${nro(f.d)} ${MESC[f.m - 1]}${f.amount ? ` · ${fmt0(f.amount)}` : ""}`); }
 function toast(t, withUndo) {
   const el = $("#toast"); el.innerHTML = ""; const sp = document.createElement("span"); sp.textContent = t; el.appendChild(sp);
   if (withUndo && undoStack.length) { const b = document.createElement("button"); b.textContent = "Deshacer"; b.className = "tbtn"; b.onclick = () => { el.classList.remove("on"); undo(); }; el.appendChild(b); el.style.pointerEvents = "auto"; } else el.style.pointerEvents = "none";
@@ -233,38 +231,21 @@ function celebrate(before) {
 function togglePaid(it) {
   const before = balSnap();
   will((it.paid ? "Desmarcaste " : "Marcaste ") + it.name);
-  if (it.paid) { ENG.effect(S, it, -1); it.paid = false; it.paidAmount = null; delete it.paidAt; }
-  else { it.paid = true; it.paidAmount = it.amount; it.paidAt = hoyISO(); ENG.effect(S, it, 1); }
+  if (it.paid) { ENG.marcar(S, it, false); delete it.paidAt; }
+  else { ENG.marcar(S, it, true); it.paidAt = hoyISO(); }
   changed(); render(); toast(it.paid ? (it.source === "income" ? "Recibido: " : "Pagado: ") + it.name : "Desmarcado: " + it.name, true); celebrate(before);
 }
-function totalDebt() { return ENG.r2(S.debts.filter(d => !d.closed && (d.since || d.start) <= S.current).reduce((a, d) => a + d.balance, 0)); }
 function startNext() {
   const last = monthKeys().at(-1); const t = ENG.totals(S.months[last]); const nk = ENG.keyAdd(last, 1);
   confirmDlg(`Iniciar ${mesCorto(nk)}`, t.nPending ? `En ${mesCorto(last)} quedan ${t.nPending} pagos sin marcar. Se quedan ahí para que los marques después. El nuevo mes se arma con tus saldos reales de hoy.` : `El nuevo mes se arma con tus saldos reales de hoy.`, `Iniciar ${mesCorto(nk)}`, () => {
     will(`Iniciaste ${mesCorto(nk)}`);
-    if (S.months[last].debtEnd == null) S.months[last].debtEnd = totalDebt();
-    const m = ENG.generate(S, nk); S.months[nk] = m; S.current = nk; ENG.recibirSalario(S, m); viewMonth = nk; changed(last, nk); render(); toast(`${mesCorto(nk)} listo`, true);
+    ENG.iniciarSiguiente(S); viewMonth = nk; changed(last, nk); render(); toast(`${mesCorto(nk)} listo`, true);
   });
 }
 function recalc(k) {
   confirmDlg("Recalcular el mes", "Se vuelven a calcular los pagos y abonos con tus saldos actuales. Lo que ya marcaste como pagado se conserva.", "Recalcular", () => {
     will(`Recalculaste ${mesCorto(k)}`);
-    const old = S.months[k];
-    for (const it of old.items) if (it.paid) ENG.effect(S, it, -1);
-    for (const [id, x] of Object.entries(old.interest || {})) { const d = ENG.debtById(S, id); if (d) d.balance = ENG.r2(d.balance - x); }
-    const keepManual = old.items.filter(i => i.kind === "manual");
-    const m = ENG.generate(S, k, { keep: keepManual });
-    const used = new Set();
-    for (const o of old.items.filter(i => i.paid && i.kind !== "manual")) {
-      const n = m.items.find(i => !used.has(i.id) && i.name === o.name && i.kind === o.kind);
-      if (n) { used.add(n.id); if (n.autoPaid) { ENG.effect(S, n, -1); } n.paid = true; n.paidAmount = o.paidAmount; ENG.effect(S, n, 1); }
-      else { m.items.push(o); ENG.effect(S, o, 1); }
-    }
-    for (const o of keepManual) { m.items.push(o); if (o.paid) ENG.effect(S, o, 1); }
-    for (const o of old.items.filter(i => i.envelope)) { const n = m.items.find(i => i.envelope && i.recId === o.recId); if (n) n.spent = o.spent || []; else m.items.push(o); }
-    if (old.closed) { m.closed = old.closed; m.summary = old.summary; m.debtEnd = old.debtEnd; }
-    if (old.debtStart != null) m.debtStart = old.debtStart;
-    S.months[k] = m; changed(k); render(); toast("Mes recalculado", true);
+    ENG.recalcular(S, k); changed(k); render(); toast("Mes recalculado", true);
   });
 }
 
@@ -347,7 +328,6 @@ function cuandoDe(it, k, m) {
 const esPago = it => it.source === "salary" && !it.envelope && !it.autoPaid && it.payWith !== "Cuenta de impuestos";
 const hoyISO = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; };
 const recIcon = r => { const v = iconOf(r); return /^[a-z0-9_]+$/.test(v) ? v : CAT_ICON[r.cat] || "receipt_long"; };
-const bkDot = pw => { const b = bankOf(pw); return b ? `<i class="bk bk-${b}" aria-hidden="true"></i>` : ""; };
 function periodDates(k) { const [y, m] = k.split("-").map(Number); return { start: new Date(y, m - 1, 20), end: new Date(m === 12 ? y + 1 : y, m % 12, 19) }; }
 function daysLeft(k) { const { start, end } = periodDates(k); const t = new Date(); t.setHours(0, 0, 0, 0); if (t > end) return null; const from = t < start ? start : t; return Math.round((end - from) / 864e5) + 1; }
 const QI = { plus: ms("add"), check: ms("task_alt"), move: ms("swap_horiz"), ask: ms("forum"), more: ms("more_horiz") };
@@ -587,7 +567,7 @@ function dlgClasificar(id) {
     });
 }
 
-const VERSION_APP = "2026-11-22 · 11";
+const VERSION_APP = "2026-11-22 · 12";
 
 // ---------- lo que entra y a dónde va ----------
 // Cada entrada de dinero con los pagos que se hacen con ese dinero debajo.
@@ -798,16 +778,10 @@ function closedCard(m) {
   return `<div class="closed"><b>Mes cerrado</b><span>${s.debtStart != null ? `La deuda bajó ${fmt(s.debtStart - s.debtEnd)} este mes. ` : ""}${s.diff > 0.5 ? `Gastaste ${fmt(s.diff)} más de lo planeado.` : s.diff < -0.5 ? `Gastaste ${fmt(-s.diff)} menos de lo planeado.` : "Gastaste justo lo planeado."}${s.carried ? ` Pasaste ${fmt(s.carried)} al mes siguiente.` : ""}</span></div>`;
 }
 function dlgClose(k, andNext) {
-  const m = S.months[k], t = ENG.totals(m), nk = ENG.keyAdd(k, 1);
-  const planned = ENG.r2(m.items.filter(i => i.source === "salary").reduce((a, i) => a + i.amount, 0));
-  const diff = ENG.r2(t.total - planned);
-  const unpaid = m.items.filter(i => i.source === "salary" && !i.envelope && !i.paid && i.amount > 0);
-  const carryable = unpaid.filter(i => !i.debtId && !i.fundId);
-  const envLeft = ENG.r2(m.items.filter(i => i.envelope).reduce((a, i) => a + Math.max(0, i.amount - ENG.spentOf(i)), 0));
-  const leftover = ENG.r2(envLeft + Math.max(0, t.free));
-  const incPending = m.items.filter(i => i.source === "income" && !i.paid && i.amount > 0);
+  const m = S.months[k], r = ENG.resumenCierre(S, k), nk = r.nk;
+  const { planned, diff, unpaid, carryable, leftover, incPending } = r, t = { total: r.real };
   const overs = m.items.filter(i => i.source === "salary").map(i => ({ n: i.name, d: ENG.r2((i.envelope ? Math.max(i.amount, ENG.spentOf(i)) : i.paid ? i.paidAmount : i.amount) - i.amount) })).filter(x => Math.abs(x.d) > 0.5);
-  const dEnd = totalDebt(), dStart = m.debtStart;
+  const dEnd = r.debtEnd, dStart = r.debtStart;
   openDlg(`<h3>Cerrar ${mesCorto(k)}</h3><p class="hint">Un resumen de cómo te fue. Puedes reabrirlo después.</p>
     <div class="sumgrid">
       <div><span>Planeado</span><b class="num">${fmt(planned)}</b></div><div><span>Real</span><b class="num">${fmt(t.total)}</b></div>
@@ -816,19 +790,16 @@ function dlgClose(k, andNext) {
     </div>
     ${overs.length ? `<p class="small u-sub"><b>Donde cambió</b></p><ul class="small u-ul">${overs.map(o => `<li>${esc(o.n)}: ${o.d > 0 ? "+" : ""}${fmt(o.d)}</li>`).join("")}</ul>` : ""}
     ${unpaid.length ? `<p class="small u-sub"><b>Quedaron sin marcar (${unpaid.length})</b></p><ul class="small u-ul">${unpaid.map(i => `<li>${esc(i.name)}: ${fmt(i.amount)}${i.debtId || i.fundId ? " · si ya lo pagaste, márcalo antes de cerrar para que el saldo quede bien" : ""}</li>`).join("")}</ul>` : ""}
-    ${carryable.length ? `<div class="fld"><label><input type="checkbox" name="carry" checked> Pasar ${carryable.length === 1 ? "el gasto pendiente" : "los gastos pendientes"} a ${mesCorto(nk)} (${fmt(carryable.reduce((a, i) => a + i.amount, 0))})</label></div>` : ""}
+    ${carryable.length ? `<div class="fld"><label><input type="checkbox" name="carry" ${r.sugerido.pasarPendientes ? "checked" : ""}> Pasar ${carryable.length === 1 ? "el gasto pendiente" : "los gastos pendientes"} a ${mesCorto(nk)} (${fmt(carryable.reduce((a, i) => a + i.amount, 0))})</label></div>` : ""}
     ${incPending.length ? `<p class="small u-sub u-debt"><b>Faltan ingresos por marcar (${incPending.length}):</b> ${incPending.map(i => esc(i.name)).join(", ")}. Márcalos antes de cerrar para que el sobrante sea real.</p>` : ""}
-    ${leftover > 0.5 ? `<div class="fld"><label><input type="checkbox" name="left" ${incPending.length ? "" : "checked"}> Mandar el sobrante (${fmt(leftover)}) a ${mesCorto(nk)} para abonar a tu deuda</label></div>` : ""}
+    ${leftover > 0.5 ? `<div class="fld"><label><input type="checkbox" name="left" ${r.sugerido.mandarSobrante ? "checked" : ""}> Mandar el sobrante (${fmt(leftover)}) a ${mesCorto(nk)} para abonar a tu deuda</label></div>` : ""}
     <div class="actions"><button class="btn ghost" value="cancel">Cancelar</button><button class="btn primary" value="ok">${andNext ? `Cerrar y empezar ${MONTHS_LONG[+nk.slice(5) - 1]}` : "Cerrar mes"}</button></div>`,
     f => {
       will(andNext ? `Pasaste a ${mesCorto(nk)}` : `Cerraste ${mesCorto(k)}`);
       const doCarry = f.elements.carry && f.elements.carry.checked, doLeft = f.elements.left && f.elements.left.checked;
-      if (doCarry) { S.carry = S.carry || {}; S.carry[nk] = (S.carry[nk] || []).concat(carryable.map(i => ({ name: i.name, cat: i.cat, payWith: i.payWith, amount: i.amount }))); for (const i of carryable) i.note = (i.note ? i.note + " · " : "") + "pasado a " + mesCorto(nk); }
-      if (doLeft) { S.carryIncome = S.carryIncome || {}; S.carryIncome[nk] = ENG.r2((S.carryIncome[nk] || 0) + leftover); }
-      if (S.months[nk] && (doCarry || doLeft)) toast(`Toca Recalcular en ${mesCorto(nk)} para aplicarlo`);
-      m.closed = new Date().toISOString(); m.debtEnd = dEnd;
-      m.summary = { planned, real: t.total, diff, debtStart: dStart, debtEnd: dEnd, carried: doCarry ? ENG.r2(carryable.reduce((a, i) => a + i.amount, 0)) : 0, leftover: doLeft ? leftover : 0 };
-      if (andNext && !S.months[nk]) { const mm = ENG.generate(S, nk); S.months[nk] = mm; S.current = nk; ENG.recibirSalario(S, mm); viewMonth = nk; changed(k, nk); render(); window.scrollTo({ top: 0 }); toast(`Listo: ${ENG.longLabel(nk)} armado con tus saldos reales`, true); return; }
+      const c = ENG.cerrarMes(S, k, { pasarPendientes: !!doCarry, mandarSobrante: !!doLeft, iniciarSiguiente: !!andNext });
+      if (c.recalcular) toast(`Toca Recalcular en ${mesCorto(nk)} para aplicarlo`);
+      if (c.siguiente) { viewMonth = nk; changed(k, nk); render(); window.scrollTo({ top: 0 }); toast(`Listo: ${ENG.longLabel(nk)} armado con tus saldos reales`, true); return; }
       changed(k); render(); if (!S.months[nk] || !(doCarry || doLeft)) toast(`${mesCorto(k)} cerrado`, true);
     });
 }
@@ -1417,11 +1388,11 @@ document.addEventListener("click", e => {
     case "pass-next": if (m.closed) startNext(); else dlgClose(k, true); break;
     case "intro-x": S.ui = Object.assign(S.ui || {}, { introOff: true }); changed(); render(); break;
     case "order-mode": orderMode = !orderMode; render(); break;
-    case "pay-group": { const gk = b.dataset.key; const items = m.items.filter(x => x.source === "salary" && !x.envelope && !x.paid && x.amount > 0 && (gk === "__auto" ? x.autoPaid : !x.autoPaid && (x.payWith || "Otros") === gk)); if (!items.length) break; const before = balSnap(); will(`Pagaste todo a ${gk === "__auto" ? "planilla" : payLabel(gk)}`); for (const it of items) { it.paid = true; it.paidAmount = it.amount; it.paidAt = hoyISO(); ENG.effect(S, it, 1); } changed(); render(); toast(`${items.length} pagos marcados · ${fmt(items.reduce((s, x) => s + x.amount, 0))}`, true); celebrate(before); break; }
+    case "pay-group": { const gk = b.dataset.key; const items = m.items.filter(x => x.source === "salary" && !x.envelope && !x.paid && x.amount > 0 && (gk === "__auto" ? x.autoPaid : !x.autoPaid && (x.payWith || "Otros") === gk)); if (!items.length) break; const before = balSnap(); will(`Pagaste todo a ${gk === "__auto" ? "planilla" : payLabel(gk)}`); for (const it of items) { ENG.marcar(S, it, true); it.paidAt = hoyISO(); } changed(); render(); toast(`${items.length} pagos marcados · ${fmt(items.reduce((s, x) => s + x.amount, 0))}`, true); celebrate(before); break; }
     case "env": { const it = findItem(); if (it) dlgEnv(it, k); break; }
     case "pc": dlgClasificar(id); break;
     case "close-month": dlgClose(k); break;
-    case "reopen": will(`Reabriste ${mesCorto(k)}`); delete m.closed; changed(k); render(); toast("Mes reabierto", true); break;
+    case "reopen": will(`Reabriste ${mesCorto(k)}`); ENG.reabrirMes(S, k); changed(k); render(); toast("Mes reabierto", true); break;
 
     case "undo": undo(); break;
     case "fecha": dlgFecha((S.fechas || []).find(x => x.id === id)); break;
