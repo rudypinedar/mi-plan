@@ -310,29 +310,31 @@ function corteAntesDe(card, due) {
   if (c >= due) c = new Date(due.getFullYear(), due.getMonth() - 1, card.cut);
   return c;
 }
-// Texto de un pago que vence pronto. La fecha es el límite: se puede pagar antes.
-// Las tarjetas de otro banco se pagan por transferencia, que puede tardar: conviene pagarlas 2 días antes.
-function textoVence(n, fecha, dineroListo, otroBanco) {
-  if (!dineroListo && n > 0) return `Al recibir · vence el ${fecha}`;
-  if (n <= 0) return "Vence hoy";
-  if (otroBanco && n <= 2) return `Paga ya · por transferencia tarda, vence el ${fecha}`;
-  if (n === 1) return `Vence mañana · ${fecha}`;
-  return `Vence en ${n} días · paga hasta el ${fecha}`;
+// Cuándo pagar algo, en una ventana: desde que se puede (llega el dinero y, si es tarjeta, ya pasó el corte)
+// hasta el último día. Las tarjetas de otro banco se pagan por transferencia, que tarda: su último día es 2 antes.
+// Recibe días desde hoy y las fechas ya escritas. Devuelve { c, t }.
+function textoVence(dIni, dFin, dDue, ini, fin, due) {
+  if (dDue < 0) return { c: "late", t: `Venció el ${due}` };
+  if (dFin <= 0) return { c: "now", t: "Paga hoy" };
+  if (dIni <= 0) return { c: "now", t: `Paga entre hoy y el ${fin}` };
+  return { c: "later", t: ini === fin ? `Paga el ${fin}` : `Paga entre el ${ini} y el ${fin}` };
 }
 function cuandoDe(it, k, m) {
   if (it.paid || !esPago(it) || !(it.amount > 0)) return null;
   const hoy = new Date(); hoy.setHours(0, 0, 0, 0);
-  if (it.noAntes) { const [y, mo, d] = String(it.noAntes).split("-").map(Number); const na = new Date(y, mo - 1, d); if (hoy < na) return { c: "wait", t: `Espera al ${fechaTxt(na)}` }; }
   const dd = dueDe(it), due = dd ? dueAbs(k, dd) : null;
   if (!due) return { c: "free", t: "Sin fecha" };
-  const n = Math.round((due - hoy) / 864e5);
-  if (n < 0) return { c: "late", t: `Venció el ${fechaTxt(due)}` };
-  const f = fuenteDe(it), ok = yaLlegó(f, m), cerca = (due - llegadaDe(f, k)) / 864e5 <= 5 || n <= 3;
-  if (cerca) { const t = tarjetaDePago(it); return { c: "now", t: textoVence(n, fechaTxt(due), ok, !!(t && !/cuscatl/i.test(t.bank || ""))), ya: ok || n <= 0 }; }
-  // Si se paga con una tarjeta cuyo corte todavía no pasa, el monto final se sabe hasta el corte
-  const corte = corteAntesDe(tarjetaDePago(it), due);
-  if (corte && hoy <= corte) return { c: "later", t: `Corte ${fechaTxt(corte)} · paga ${fechaTxt(due)}` };
-  return { c: "later", t: `Paga hasta el ${fechaTxt(due)}` };
+  const mas = (d, n) => new Date(d.getFullYear(), d.getMonth(), d.getDate() + n);
+  const dias = d => Math.round((d - hoy) / 864e5);
+  const t = tarjetaDePago(it), otroBanco = !!(t && !/cuscatl/i.test(t.bank || ""));
+  const fin = otroBanco ? mas(due, -2) : due;
+  let ini = llegadaDe(fuenteDe(it), k);
+  const corte = corteAntesDe(t, due); if (corte && mas(corte, 1) > ini) ini = mas(corte, 1);
+  if (it.noAntes) { const [y, mo, d] = String(it.noAntes).split("-").map(Number); const na = new Date(y, mo - 1, d); if (na > ini) ini = na; }
+  if (ini > fin) ini = fin;
+  const r = textoVence(dias(ini), dias(fin), dias(due), fechaTxt(ini), fechaTxt(fin), fechaTxt(due));
+  r.ya = r.c === "now" || r.c === "late";
+  return r;
 }
 const esPago = it => it.source === "salary" && !it.envelope && !it.autoPaid && it.payWith !== "Cuenta de impuestos";
 const hoyISO = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; };
@@ -576,7 +578,7 @@ function dlgClasificar(id) {
     });
 }
 
-const VERSION_APP = "2026-11-24 · 14";
+const VERSION_APP = "2026-11-24 · 15";
 
 // ---------- lo que entra y a dónde va ----------
 // Cada entrada de dinero con los pagos que se hacen con ese dinero debajo.

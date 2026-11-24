@@ -35,15 +35,15 @@ test("app.js: marcar, recalcular, cerrar, reabrir e iniciar mes usan el motor", 
   assert.ok(!/it\.paid = true; it\.paidAmount = it\.amount; it\.paidAt/.test(APP), "marca pagado por su cuenta");
 });
 
-test("app.js: textos de cuándo pagar (la fecha es el límite; otro banco, 2 días antes)", () => {
+test("app.js: cuándo pagar en una ventana (entre tal y tal fecha, entre hoy y…, paga hoy)", () => {
   const ini = APP.indexOf("function textoVence("), fin = APP.indexOf("\n}\n", ini);
   assert.ok(ini > 0, "falta textoVence");
-  const textoVence = new Function(APP.slice(ini, fin + 2) + "; return textoVence;")();
-  assert.equal(textoVence(0, "26 nov", true, true), "Vence hoy");
-  assert.equal(textoVence(1, "26 nov", true, false), "Vence mañana · 26 nov");
-  assert.equal(textoVence(3, "26 nov", true, false), "Vence en 3 días · paga hasta el 26 nov");
-  assert.equal(textoVence(2, "26 nov", true, true), "Paga ya · por transferencia tarda, vence el 26 nov");
-  assert.equal(textoVence(3, "26 nov", true, true), "Vence en 3 días · paga hasta el 26 nov");
-  assert.equal(textoVence(2, "30 nov", false, false), "Al recibir · vence el 30 nov");
-  assert.ok(!/Págalo ya/.test(APP), "queda el texto viejo");
+  const tv = new Function(APP.slice(ini, fin + 2) + "; return textoVence;")();
+  assert.deepEqual(tv(3, 10, 10, "4 dic", "11 dic", "11 dic"), { c: "later", t: "Paga entre el 4 dic y el 11 dic" });
+  assert.deepEqual(tv(0, 2, 2, "24 nov", "26 nov", "26 nov"), { c: "now", t: "Paga entre hoy y el 26 nov" });
+  assert.deepEqual(tv(-5, 0, 2, "19 nov", "24 nov", "26 nov"), { c: "now", t: "Paga hoy" }, "otro banco: el último día es 2 antes");
+  assert.deepEqual(tv(-5, -1, 1, "19 nov", "24 nov", "26 nov"), { c: "now", t: "Paga hoy" }, "pasó el margen pero todavía no vence");
+  assert.deepEqual(tv(-9, -3, -1, "x", "y", "23 nov"), { c: "late", t: "Venció el 23 nov" });
+  assert.deepEqual(tv(5, 5, 5, "29 nov", "29 nov", "29 nov"), { c: "later", t: "Paga el 29 nov" });
+  assert.ok(!/Págalo ya|por transferencia tarda/.test(APP), "quedan textos viejos");
 });
