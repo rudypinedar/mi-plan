@@ -34,3 +34,16 @@ test("app.js: marcar, recalcular, cerrar, reabrir e iniciar mes usan el motor", 
   assert.ok(!/S\.carryIncome\s*=/.test(APP), "manda el sobrante por su cuenta");
   assert.ok(!/it\.paid = true; it\.paidAmount = it\.amount; it\.paidAt/.test(APP), "marca pagado por su cuenta");
 });
+
+test("app.js: textos de cuándo pagar (la fecha es el límite; otro banco, 2 días antes)", () => {
+  const ini = APP.indexOf("function textoVence("), fin = APP.indexOf("\n}\n", ini);
+  assert.ok(ini > 0, "falta textoVence");
+  const textoVence = new Function(APP.slice(ini, fin + 2) + "; return textoVence;")();
+  assert.equal(textoVence(0, "26 nov", true, true), "Vence hoy");
+  assert.equal(textoVence(1, "26 nov", true, false), "Vence mañana · 26 nov");
+  assert.equal(textoVence(3, "26 nov", true, false), "Vence en 3 días · paga hasta el 26 nov");
+  assert.equal(textoVence(2, "26 nov", true, true), "Paga ya · por transferencia tarda, vence el 26 nov");
+  assert.equal(textoVence(3, "26 nov", true, true), "Vence en 3 días · paga hasta el 26 nov");
+  assert.equal(textoVence(2, "30 nov", false, false), "Al recibir · vence el 30 nov");
+  assert.ok(!/Págalo ya/.test(APP), "queda el texto viejo");
+});

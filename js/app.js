@@ -310,6 +310,15 @@ function corteAntesDe(card, due) {
   if (c >= due) c = new Date(due.getFullYear(), due.getMonth() - 1, card.cut);
   return c;
 }
+// Texto de un pago que vence pronto. La fecha es el límite: se puede pagar antes.
+// Las tarjetas de otro banco se pagan por transferencia, que puede tardar: conviene pagarlas 2 días antes.
+function textoVence(n, fecha, dineroListo, otroBanco) {
+  if (!dineroListo && n > 0) return `Al recibir · vence el ${fecha}`;
+  if (n <= 0) return "Vence hoy";
+  if (otroBanco && n <= 2) return `Paga ya · por transferencia tarda, vence el ${fecha}`;
+  if (n === 1) return `Vence mañana · ${fecha}`;
+  return `Vence en ${n} días · paga hasta el ${fecha}`;
+}
 function cuandoDe(it, k, m) {
   if (it.paid || !esPago(it) || !(it.amount > 0)) return null;
   const hoy = new Date(); hoy.setHours(0, 0, 0, 0);
@@ -319,7 +328,7 @@ function cuandoDe(it, k, m) {
   const n = Math.round((due - hoy) / 864e5);
   if (n < 0) return { c: "late", t: `Venció el ${fechaTxt(due)}` };
   const f = fuenteDe(it), ok = yaLlegó(f, m), cerca = (due - llegadaDe(f, k)) / 864e5 <= 5 || n <= 3;
-  if (cerca) return { c: "now", t: n === 0 ? "Págalo hoy" : ok ? `Págalo ya · ${fechaTxt(due)}` : `Al recibir · ${fechaTxt(due)}`, ya: ok || n <= 0 };
+  if (cerca) { const t = tarjetaDePago(it); return { c: "now", t: textoVence(n, fechaTxt(due), ok, !!(t && !/cuscatl/i.test(t.bank || ""))), ya: ok || n <= 0 }; }
   // Si se paga con una tarjeta cuyo corte todavía no pasa, el monto final se sabe hasta el corte
   const corte = corteAntesDe(tarjetaDePago(it), due);
   if (corte && hoy <= corte) return { c: "later", t: `Corte ${fechaTxt(corte)} · paga ${fechaTxt(due)}` };
@@ -567,7 +576,7 @@ function dlgClasificar(id) {
     });
 }
 
-const VERSION_APP = "2026-11-22 · 13";
+const VERSION_APP = "2026-11-24 · 14";
 
 // ---------- lo que entra y a dónde va ----------
 // Cada entrada de dinero con los pagos que se hacen con ese dinero debajo.
