@@ -185,3 +185,26 @@ test("al empezar el mes, el salario queda recibido solo (y los demás ingresos n
   assert.equal(ENG.totals(r.siguiente).inc, ENG.totals(r.siguiente).inc, "llamarlo dos veces no duplica");
   assert.equal(r.siguiente.items.filter(i => i === sal && i.paid).length, 1);
 });
+
+test("tarjeta para cancelar: avisa solo cuando no tiene saldo, cuotas ni cargos", () => {
+  const s = iniciar(planEjemplo()); const k = s.current;
+  const t = s.debts.find(d => d.kind === "card");
+  assert.ok(t, "el plan de ejemplo no trae tarjeta");
+  assert.deepEqual(ENG.porCancelar(s, k), [], "sin marcar ninguna, no hay avisos");
+  t.cancelar = true;
+  for (const d of s.debts) if (d.parent === t.id) d.closed = true; // se parte de una tarjeta sin cuotas propias
+  for (const r of s.recurring) if (r.payWith === t.payWith) r.schedule = [{ from: "2000-01", amount: 0 }];
+  for (const o of s.oneoffs) if (o.payWith === t.payWith) o.amount = 0;
+  t.balance = 120; s.debts.push({ id: "c0", name: "Cuota 0% prueba", kind: "installment", parent: t.id, balance: 50 });
+  s.recurring.push({ id: "sus", name: "Suscripción", payWith: t.payWith, schedule: [{ from: k, amount: 5 }, { from: ENG.keyAdd(k, 2), amount: 0 }] });
+  s.oneoffs.push({ id: "comp", month: ENG.keyAdd(k, 3), name: "Compra futura", payWith: t.payWith, amount: 10 });
+  let c = ENG.porCancelar(s, k)[0];
+  assert.equal(c.saldo, 120); assert.deepEqual(c.cuotas, ["Cuota 0% prueba"]); assert.deepEqual(c.cargos, ["Suscripción", "Compra futura"]); assert.equal(c.lista, false);
+  t.balance = 0.3; s.debts.find(d => d.id === "c0").balance = 0;
+  c = ENG.porCancelar(s, ENG.keyAdd(k, 2))[0];
+  assert.deepEqual(c.cargos, ["Compra futura"], "la suscripción ya terminó; la compra todavía viene");
+  c = ENG.porCancelar(s, ENG.keyAdd(k, 4))[0];
+  assert.equal(c.lista, true, "en cero y sin cargos: lista para cancelar");
+  t.closed = true;
+  assert.deepEqual(ENG.porCancelar(s, k), [], "ya cancelada, no avisa más");
+});

@@ -47,3 +47,8 @@ test("app.js: cuándo pagar en una ventana (entre tal y tal fecha, entre hoy y�
   assert.deepEqual(tv(5, 5, 5, "29 nov", "29 nov", "29 nov"), { c: "later", t: "Paga el 29 nov" });
   assert.ok(!/Págalo ya|por transferencia tarda/.test(APP), "quedan textos viejos");
 });
+
+test("app.js: el aviso de tarjeta para cancelar usa el motor y cierra con confirmación", () => {
+  assert.ok(APP.includes("ENG.porCancelar(S, k)"), "el aviso no usa ENG.porCancelar");
+  assert.ok(/case "cancelada":[^\n]*confirmDlg\(/.test(APP), "cancelar la tarjeta no pide confirmación");
+});

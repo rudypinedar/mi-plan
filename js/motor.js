@@ -314,8 +314,21 @@
     return m;
   }
 
+  // Tarjetas que Rudy quiere cancelar (d.cancelar): quedan listas cuando no tienen saldo, ni cuotas 0% abiertas,
+  // ni gastos fijos o puntuales que se les carguen desde el mes k en adelante.
+  function porCancelar(s, k) {
+    const futuro = sc => (sc || []).some(e => e.amount > 0.005 && (e.from > k || sched(sc, k) > 0.005));
+    return (s.debts || []).filter(d => d.cancelar && !d.closed).map(d => {
+      const saldo = d.balance > 0.5 ? r2(d.balance) : 0;
+      const cuotas = s.debts.filter(x => x.parent === d.id && !x.closed && x.balance > 0.5).map(x => x.name);
+      const cargos = (s.recurring || []).filter(r => d.payWith && r.payWith === d.payWith && futuro(r.schedule)).map(r => r.name)
+        .concat((s.oneoffs || []).filter(o => d.payWith && o.payWith === d.payWith && o.month >= k && o.amount > 0.005).map(o => o.name));
+      return { d, saldo, cuotas, cargos, lista: !saldo && !cuotas.length && !cargos.length };
+    });
+  }
+
   return {
     seed, seedFechas, project, spentOf, generate, effect, totals, keyAdd, label, longLabel, sched, r2, uid, debtById, fundById,
-    deudaTotal, mesesOrdenados, buscarItem, marcar, anotarGasto, resumenCierre, cerrarMes, iniciarSiguiente, reabrirMes, recalcular, recibirSalario,
+    deudaTotal, mesesOrdenados, buscarItem, marcar, anotarGasto, resumenCierre, cerrarMes, iniciarSiguiente, reabrirMes, recalcular, recibirSalario, porCancelar,
   };
 });

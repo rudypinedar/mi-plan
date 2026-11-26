@@ -578,7 +578,7 @@ function dlgClasificar(id) {
     });
 }
 
-const VERSION_APP = "2026-11-24 · 15";
+const VERSION_APP = "2026-11-25 · 16";
 
 // ---------- lo que entra y a dónde va ----------
 // Cada entrada de dinero con los pagos que se hacen con ese dinero debajo.
@@ -774,6 +774,7 @@ function vMes() {
   B.pc = !PREVIEW && k === S.current && !m.closed ? bandejaHTML() : "";
   if (!PREVIEW && !m.closed) for (const a of avisosContado(k)) B.note += `<div class="paynote aviso-min">${ms("receipt_long")}<b>${esc(a.d.name)}: el estado de cuenta dice ${fmt(num(a.e.pago_contado))} para no pagar intereses</b><span class="small muted">Tu plan le paga ${fmt(a.paga)} antes del ${esc(fechaCorta(a.e.fecha_pago))}. Si el estado es correcto, ajusta el pago de la tarjeta o pídeme el ajuste.</span><button class="btn" data-act="debt" data-id="${esc(a.d.id)}">Ver la tarjeta</button></div>`;
   if (!PREVIEW && !m.closed) for (const a of avisosMinimo(k)) B.note += `<div class="paynote aviso-min">${ms("warning")}<b>${esc(a.d.name)}: el banco pide un mínimo de ${fmt(num(a.e.pago_minimo))}</b><span class="small muted">Tu plan le paga ${fmt(a.paga)} este mes. Págale al menos el mínimo antes del ${fechaCorta(a.e.fecha_pago)} para evitar recargos.</span><button class="btn" data-act="debt" data-id="${esc(a.d.id)}">Ver la tarjeta</button></div>`;
+  if (!PREVIEW && !m.closed && k === S.current) for (const c of ENG.porCancelar(S, k).filter(c => c.lista)) B.note += `<div class="paynote">${ms("credit_card_off")}<b>Ya puedes cancelar la ${esc(c.d.name.replace(/^Tarjeta /, ""))}</b><span class="small muted">Está en cero, sin cuotas ni cargos automáticos. Llama a ${esc(c.d.bank || "tu banco")}${c.d.phone ? ` (${esc(c.d.phone)})` : ""}, pide el cierre y una constancia de saldo cero.</span><button class="btn" data-act="cancelada" data-id="${esc(c.d.id)}">Ya la cancelé</button></div>`;
   B.ins = insight(m, k);
   B.donut = donut(m);
   const o = (n, x) => x ? `<div class="o${n}">${x}</div>` : "";
@@ -1197,6 +1198,8 @@ function dlgDetail(d) {
   if (d.rate) add("Interés aproximado al mes", fmt(d.balance * d.rate / 12));
   if (d.kind === "card") { add("Pago mínimo", `${(d.minPct * 100).toFixed(1)}% del saldo${d.extra ? ` + $${nro(d.extra)} extra (tu plan)` : ""}`); if (d.cut) add("Fecha de corte", `Día ${nro(d.cut)}`); }
   if (d.cuota) add("Cuota mensual", fmt(d.cuota) + (d.portion != null ? ` · ${fmt(d.portion)} bajan el saldo` : ""));
+  const pc = d.cancelar && !d.closed ? ENG.porCancelar(S, S.current).find(c => c.d === d) : null;
+  if (pc) add("Para cancelar", pc.lista ? "Ya puedes cancelarla" : esc("Cuando quede sin " + [pc.saldo ? "saldo (" + fmt(pc.saldo) + ")" : "", pc.cuotas.length ? "cuotas: " + pc.cuotas.join(", ") : "", pc.cargos.length ? "cargos: " + pc.cargos.join(", ") : ""].filter(Boolean).join(" · ")));
   if (d.term) add("Plazo", `${nro(d.term)} ${d.kind === "installment" ? "cuotas" : "meses"}`);
   if (d.ends) add("Termina según contrato", esc(d.ends));
   add("Fecha de pago", dd);
@@ -1406,6 +1409,7 @@ document.addEventListener("click", e => {
     case "reopen": will(`Reabriste ${mesCorto(k)}`); ENG.reabrirMes(S, k); changed(k); render(); toast("Mes reabierto", true); break;
 
     case "undo": undo(); break;
+    case "cancelada": { const d = ENG.debtById(S, id); if (!d) break; confirmDlg(`¿Ya cancelaste la ${d.name.replace(/^Tarjeta /, "")}?`, "Queda como cerrada en tu plan y deja de aparecer en los pagos.", "Sí, ya la cancelé", () => { will(`Cancelaste ${d.name}`); d.closed = true; d.balance = 0; changed(); render(); toast("Tarjeta cancelada", true); }); break; }
     case "fecha": dlgFecha((S.fechas || []).find(x => x.id === id)); break;
     case "add-fecha": dlgFecha(null); break;
 
