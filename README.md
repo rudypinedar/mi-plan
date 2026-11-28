@@ -16,7 +16,7 @@ App personal de presupuesto y deudas, instalable en el teléfono. Los datos vive
 - `apps-script/`: el puente con Google Sheets, Gmail, Drive y Google Tasks (sin claves). Ver `docs/SHEET.md`.
 - `herramientas/ajuste.js`: aplica ajustes al plan con vista previa y control de versión.
 - `pruebas/`: pruebas automáticas (`npm test`).
-- `docs/`: cómo está hecho el Sheet (`SHEET.md`) y el teléfono Android (`ANDROID.md`).
+- `docs/`: cómo está hecho el Sheet (`SHEET.md`) y los teléfonos (`IPHONE.md`, `ANDROID.md`).
 - `privado/`: solo en la computadora; nunca se sube.
 
 ## Conectar un teléfono
