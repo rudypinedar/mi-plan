@@ -127,9 +127,9 @@
     }
   }
   async function conSalidaPrf(salida) {
-    const m = meta(); if (!m || !m.prf) return { ok: false, error: "La huella no está configurada" };
+    const m = meta(); if (!m || !m.prf) return { ok: false, error: "El desbloqueo con Face ID o huella no está configurado" };
     try { return { ok: await abrirCon(await desenvolver(m.prf, await kekDePrf(salida))) }; }
-    catch (_) { return { ok: false, error: "No se pudo abrir con la huella" }; }
+    catch (_) { return { ok: false, error: "No se pudo abrir con Face ID o la huella" }; }
   }
 
   // ---------- WebAuthn (solo navegador) ----------
@@ -160,10 +160,10 @@
     return r.prf && r.prf.results && r.prf.results.first ? new Uint8Array(r.prf.results.first) : null;
   }
   async function conHuellaAhora() {
-    const m = meta(); if (!m || !m.prf) return { ok: false, error: "La huella no está configurada" };
+    const m = meta(); if (!m || !m.prf) return { ok: false, error: "El desbloqueo con Face ID o huella no está configurado" };
     let salida;
-    try { salida = await salidaHuella(m.credId, m.prfSal); } catch (_) { return { ok: false, error: "Se canceló o no se reconoció la huella" }; }
-    if (!salida) return { ok: false, error: "Este navegador no entregó la llave de la huella; usa tu código" };
+    try { salida = await salidaHuella(m.credId, m.prfSal); } catch (_) { return { ok: false, error: "Se canceló o no se reconoció tu rostro o tu huella" }; }
+    if (!salida) return { ok: false, error: "Este navegador no entregó la llave; usa tu código" };
     return conSalidaPrf(salida);
   }
 

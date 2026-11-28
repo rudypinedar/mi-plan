@@ -587,6 +587,8 @@ body::before{content:"";position:fixed;inset:-10vh -10vw;z-index:-1;pointer-even
   body::after{content:"";position:fixed;left:0;right:0;top:0;height:env(safe-area-inset-top,0px);z-index:19;
     background:var(--glass-strong);-webkit-backdrop-filter:var(--glass-blur);backdrop-filter:var(--glass-blur)}
   header.top{top:env(safe-area-inset-top,0px)}
+  /* sin espacio arriba: la barra arranca pegada a la franja de la hora, igual que cuando se desplaza */
+  .wrap{padding-top:0}
 }
 
 /* Barra de pestañas flotante de vidrio */

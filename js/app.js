@@ -110,14 +110,17 @@ function abrirAccesoDirecto() {
 
 // ---------- candado: huella o código (js/candado.js) ----------
 const hayCandado = () => typeof Candado !== "undefined";
+// En iPhone y iPad se desbloquea con Face ID (o Touch ID); en Android, con la huella
+const ES_APPLE = /iPhone|iPad|iPod/.test(navigator.userAgent) || (/Macintosh/.test(navigator.userAgent) && navigator.maxTouchPoints > 1);
+const BIO = ES_APPLE ? "Face ID" : "tu huella", BIO_ICO = ES_APPLE ? "face" : "fingerprint";
 function pantallaCandado() {
   return new Promise(resolve => {
     document.body.classList.add("bloqueada");
     const huella = Candado.conHuella();
     const el = document.createElement("div"); el.id = "candado"; el.setAttribute("role", "dialog"); el.setAttribute("aria-modal", "true"); el.setAttribute("aria-label", "Mi plan está bloqueada");
     el.innerHTML = `<div class="candado-caja"><div class="conectar-ico">${ms("lock", "fill")}</div><h2>Mi plan está bloqueada</h2>
-      <p class="muted">${huella ? "Usa tu huella o tu rostro para entrar." : "Escribe tu código para entrar."}</p>
-      ${huella ? `<button class="btn primary wide" id="cHuella" type="button">${ms("fingerprint")}Desbloquear con huella</button>` : ""}
+      <p class="muted">${huella ? `Usa ${BIO} para entrar.` : "Escribe tu código para entrar."}</p>
+      ${huella ? `<button class="btn primary wide" id="cHuella" type="button">${ms(BIO_ICO)}Desbloquear con ${BIO}</button>` : ""}
       <form id="cPin" ${huella ? "hidden" : ""}><div class="fld"><label for="f_pin">Código</label><input id="f_pin" name="pin" type="password" inputmode="numeric" pattern="[0-9]*" autocomplete="off" maxlength="6" required></div><button class="btn ${huella ? "" : "primary"} wide" type="submit">Entrar</button></form>
       ${huella ? '<button class="link" id="cUsarPin" type="button">Usar mi código</button>' : ""}
       <p class="conectar-msg" role="alert" id="cMsg"></p>
@@ -152,14 +155,14 @@ document.addEventListener("visibilitychange", () => {
 });
 function seguridadHTML() {
   if (!hayCandado()) return "";
-  if (!Candado.activo()) return `<section class="block"><h2>Seguridad</h2><div class="list"><div class="row"><div class="main"><span class="t">${gIco("fingerprint")}Bloqueo con huella</span><span class="m">Pide tu huella o tu rostro para abrir la app y cifra tus datos en este teléfono.</span></div></div></div>
+  if (!Candado.activo()) return `<section class="block"><h2>Seguridad</h2><div class="list"><div class="row"><div class="main"><span class="t">${gIco(BIO_ICO)}Bloqueo con ${BIO}</span><span class="m">Pide ${BIO} para abrir la app y cifra tus datos en este teléfono.</span></div></div></div>
     <div class="actions"><button class="btn primary" data-act="candado-activar"><span class="ms" aria-hidden="true">lock</span>Activar bloqueo</button></div></section>`;
-  return `<section class="block"><h2>Seguridad</h2><div class="list"><div class="row"><div class="main"><span class="t">${gIco("verified_user")}Bloqueo activado</span><span class="m">${Candado.conHuella() ? "Se abre con tu huella o tu rostro; tu código sirve de respaldo." : "Se abre con tu código (este navegador no permite cifrar con la huella)."} Tus datos en este teléfono están cifrados. Se bloquea sola tras ${Candado.minutos()} minutos sin usarla.</span></div></div></div>
+  return `<section class="block"><h2>Seguridad</h2><div class="list"><div class="row"><div class="main"><span class="t">${gIco("verified_user")}Bloqueo activado</span><span class="m">${Candado.conHuella() ? `Se abre con ${BIO}; tu código sirve de respaldo.` : `Se abre con tu código (este navegador no permite cifrar con ${BIO}).`} Tus datos en este teléfono están cifrados. Se bloquea sola tras ${Candado.minutos()} minutos sin usarla.</span></div></div></div>
     <div class="actions"><button class="btn" data-act="candado-bloquear"><span class="ms" aria-hidden="true">lock</span>Bloquear ahora</button><button class="btn danger" data-act="candado-desactivar"><span class="ms" aria-hidden="true">lock_open</span>Desactivar bloqueo</button></div></section>`;
 }
 function dlgActivarCandado() {
   const pinFld = (lbl, n) => fld(lbl, n, "", "password", 'inputmode="numeric" pattern="[0-9]*" maxlength="6" autocomplete="new-password" required');
-  openDlg(`<h3>Activar bloqueo</h3><p class="hint">Primero crea un código de 4 a 6 números: sirve si la huella falla. Luego el teléfono te pedirá tu huella o tu rostro.</p>
+  openDlg(`<h3>Activar bloqueo</h3><p class="hint">Primero crea un código de 4 a 6 números: sirve si ${BIO} falla. Luego el teléfono te pedirá ${BIO}.</p>
     ${pinFld("Código nuevo", "pin1")}${pinFld("Repite el código", "pin2")}
     <div class="actions"><button class="btn ghost" value="cancel">Cancelar</button><button class="btn primary" value="ok">Continuar</button></div>`, f => {
     const a = g(f, "pin1"), b = g(f, "pin2");
@@ -174,7 +177,7 @@ async function activarCandado(pin) {
     try { prf = await Candado.registrarHuella(); } catch (_) { toast("No se registró la huella: se activa solo con tu código"); }
     if (prf && !prf.salida) { prf = null; toast("Este navegador no permite cifrar con la huella: se usará tu código"); }
   }
-  try { const r = await Candado.activar({ pin, prf }); render(); toast(r.conHuella ? "Listo: la app se abre con tu huella" : "Listo: la app se abre con tu código"); }
+  try { const r = await Candado.activar({ pin, prf }); render(); toast(r.conHuella ? `Listo: la app se abre con ${BIO}` : "Listo: la app se abre con tu código"); }
   catch (e) { toast(e.message || "No se pudo activar el bloqueo"); }
 }
 
@@ -578,7 +581,7 @@ function dlgClasificar(id) {
     });
 }
 
-const VERSION_APP = "2026-11-25 · 16";
+const VERSION_APP = "2026-11-27 · 17";
 
 // ---------- lo que entra y a dónde va ----------
 // Cada entrada de dinero con los pagos que se hacen con ese dinero debajo.
@@ -1441,7 +1444,7 @@ document.addEventListener("click", e => {
     }
     case "candado-activar": dlgActivarCandado(); break;
     case "candado-bloquear": Candado.listo().then(() => location.reload()); break;
-    case "candado-desactivar": confirmDlg("Desactivar el bloqueo", "La app ya no pedirá huella ni código, y tus datos en este teléfono quedarán sin cifrar.", "Desactivar", async () => { await Candado.desactivar(); render(); toast("Bloqueo desactivado"); }, true); break;
+    case "candado-desactivar": confirmDlg("Desactivar el bloqueo", `La app ya no pedirá ${BIO} ni código, y tus datos en este teléfono quedarán sin cifrar.`, "Desactivar", async () => { await Candado.desactivar(); render(); toast("Bloqueo desactivado"); }, true); break;
     case "instalar": if (promptInstalar) { promptInstalar.prompt(); promptInstalar.userChoice.finally(() => { promptInstalar = null; render(); }); } break;
     case "recordatorios": toast("Actualizando tus recordatorios…"); Datos.accion("recordatorios").then(r => toast(r.ok ? `Listo: ${r.tareas} ${r.tareas === 1 ? "recordatorio" : "recordatorios"} en Google Tasks ("Mi plan · pagos")` : (r.error || "No se pudo actualizar"))).catch(() => toast("Sin señal: inténtalo después")); break;
     case "desconectar": confirmDlg("Desconectar este teléfono", "Se borra de este teléfono la copia de tu plan y la clave. Tus datos siguen seguros en tu Google Sheet.", "Desconectar", () => { Datos.desconectar(); location.reload(); }, true); break;
